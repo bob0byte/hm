@@ -161,7 +161,7 @@
 
                 <TextView
                     style="@style/Hint"
-                    android:text="Holds the screen at its fastest rate and stops the system from slowing it down, so each tap shows on the very next frame." />
+                    android:text="Holds the screen at its fastest rate so each tap shows on the very next frame. If that ever makes the screen slower on this phone, the app undoes it by itself." />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/perfSwitch"
@@ -186,7 +186,7 @@
                 <TextView
                     style="@style/Hint"
                     android:layout_marginTop="8dp"
-                    android:text="Render resolution (lower = faster frames, blurrier picture)" />
+                    android:text="Screen resolution while playing (lower = faster and blurrier). Used by auto game mode only, and put back when you leave the game." />
 
                 <com.google.android.material.chip.ChipGroup
                     android:id="@+id/scaleChips"
@@ -214,7 +214,31 @@
 
                 <TextView
                     style="@style/Hint"
-                    android:text="Stops downloads, updates and syncing in other apps from competing with your game. Only apps you installed are blocked, and they get their internet back when you leave the game. Messages and calls in apps like WhatsApp won't come through while you play unless you add them to the never close list below." />
+                    android:text="Stops downloads, updates and syncing in other apps from competing with your game. Only apps you installed are blocked, and they get their internet back when you leave the game. Messages and calls in apps like WhatsApp won't come through while you play unless you add them to Protected apps below." />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Protected apps -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
+
+            <LinearLayout style="@style/CardBody">
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="Protected apps" />
+
+                <TextView
+                    android:id="@+id/keepSummary"
+                    style="@style/Hint"
+                    android:layout_marginTop="4dp" />
+
+                <Button
+                    android:id="@+id/chooseKeep"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Choose protected apps" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -254,21 +278,6 @@
                     android:valueFrom="10"
                     android:valueTo="120"
                     app:labelBehavior="gone" />
-
-                <com.google.android.material.textfield.TextInputLayout
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:hint="Apps to never close or block (optional)"
-                    app:helperText="Package names with commas, e.g. com.whatsapp, com.discord">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/keepList"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="textNoSuggestions|textMultiLine" />
-                </com.google.android.material.textfield.TextInputLayout>
 
                 <Button
                     android:id="@+id/boostNowButton"

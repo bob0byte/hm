@@ -2,16 +2,19 @@ package com.ahmed.fpssetter
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
 
 /**
  * Frees memory through Shizuku.
  *
- * Normal pass:     `am kill-all` closes every app that is only cached in the
- *                  background. Nothing visible is lost.
- * Aggressive pass: also force-stops running apps you installed yourself.
- *                  System apps are never touched, and neither are the apps on
- *                  screen, the apps the phone relies on (see PROBE), Shizuku,
- *                  this app, or anything on the keep list.
+ * Normal:     `am kill-all` closes every app that is only cached in the background.
+ * Aggressive: also force-stops running apps you installed yourself.
+ * Extreme:    also force-stops preinstalled apps that are safe to close: the
+ *             ones with a home-screen icon (store, browser, YouTube, gallery…)
+ *             and known background bloat (Bixby, Facebook services…).
+ *
+ * In every mode the phone's core is left alone: see [ALWAYS_KEEP], [isCore]
+ * and the "SAFE" part of [PROBE].
  */
 object RamBooster {
 
@@ -19,20 +22,77 @@ object RamBooster {
     private val PKG = Regex("^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$")
     private val FOREGROUND = Regex("u\\d+ ([A-Za-z0-9_.]+)/")
 
-    // Apps that are never closed, whatever the settings say.
+    // Never closed, whatever the settings say.
     private val ALWAYS_KEEP = setOf(
         SHIZUKU_PKG,
-        "com.google.android.gms",          // Google Play services
+        "android",
+        "com.google.android.gms",                 // Google Play services
         "com.google.android.gsf",
-        "com.android.vending",             // Play Store
+        "com.android.vending",                    // Play Store (licence checks, installs)
         "com.google.android.webview",
         "com.android.systemui",
         "com.android.phone",
-        "com.android.settings"
+        "com.android.settings",
+        // Alarms and reminders would be cancelled if these were closed
+        "com.sec.android.app.clockpackage",
+        "com.google.android.deskclock",
+        "com.android.deskclock",
+        "com.samsung.android.calendar",
+        "com.google.android.calendar",
+        // Samsung basics
+        "com.sec.android.app.launcher",           // home screen
+        "com.samsung.android.honeyboard",         // keyboard
+        "com.samsung.android.dialer",
+        "com.samsung.android.incallui",
+        "com.samsung.android.messaging",
+        "com.samsung.android.app.contacts",
+        "com.samsung.android.lool",               // device care
+        "com.samsung.android.app.watchmanager",   // watch connection
+        "com.sec.android.app.camera"
     )
 
+    // Parts of a package name that mark it as part of the phone's core.
+    private val CORE_WORDS = listOf(
+        "provider", "systemui", "inputmethod", "keyboard", "launcher", "telephony",
+        ".ims", "bluetooth", ".nfc", "wifi", "networkstack", "permissioncontroller",
+        "packageinstaller", "webview", "knox", "biometrics", "incallui", "dialer",
+        "messaging", "contacts", "clock", "calendar", "settings", "shizuku",
+        "overlay", "mainline", "telecom", "location", "security", "wallpaper",
+        "accessibility", "print", "keychain", "certinstaller", "emergency"
+    )
+
+    // Preinstalled background services that are safe to close (no icon of their own).
+    private val KNOWN_BLOAT = setOf(
+        "com.samsung.android.bixby.agent",
+        "com.samsung.android.bixby.wakeup",
+        "com.samsung.android.bixbyvision.framework",
+        "com.samsung.android.visionintelligence",
+        "com.samsung.android.app.spage",          // Samsung Free
+        "com.samsung.android.app.tips",
+        "com.samsung.android.arzone",
+        "com.samsung.android.aremoji",
+        "com.samsung.android.smartsuggestions",
+        "com.samsung.android.rubin.app",          // customization service
+        "com.samsung.android.mdx",                // Link to Windows
+        "com.samsung.android.scloud",
+        "com.samsung.android.game.gamehome",
+        "com.sec.android.app.samsungapps",        // Galaxy Store
+        "com.facebook.services",
+        "com.facebook.appmanager",
+        "com.facebook.system",
+        "com.microsoft.skydrive",
+        "com.microsoft.appmanager"
+    )
+
+    private fun isCore(pkg: String): Boolean {
+        if (pkg in ALWAYS_KEEP) return true
+        // Everything under com.android is Android itself, except the Chrome browser
+        if (pkg.startsWith("com.android.") && pkg != "com.android.chrome") return true
+        return CORE_WORDS.any { pkg.contains(it) }
+    }
+
     // One shell call that reports what is on screen, which apps the phone
-    // depends on, installed (non-system) apps, and running process names.
+    // depends on, installed apps, and running process names.
     private val PROBE = listOf(
         // Every app with a window on screen (covers split screen too)
         "dumpsys activity activities | grep -E 'ResumedActivity' | sed 's/^/FG:/'",
@@ -53,7 +113,8 @@ object RamBooster {
             "; dumpsys wallpaper | grep -o 'mWallpaperComponent=ComponentInfo{[^}]*}'" +
             "; dumpsys media_session | grep -o 'package=[A-Za-z0-9_.]*'" +
             " ) 2>/dev/null | sed 's/^/SAFE:/'",
-        "pm list packages -3",
+        "pm list packages -3 | sed 's/^package:/USER:/'",
+        "pm list packages -s | sed 's/^package:/SYSTEM:/'",
         "echo PS:",
         "ps -A -o NAME"
     ).joinToString("; ")
@@ -64,7 +125,8 @@ object RamBooster {
             .map { it.substringBefore('/') }
             .filter { PKG.matches(it) }
 
-    data class Config(val aggressive: Boolean, val keep: Set<String>)
+    /** [mode] is one of the Cfg.RAM_ values. */
+    data class Config(val mode: Int, val keep: Set<String>)
 
     data class Outcome(
         val ok: Boolean,
@@ -81,12 +143,15 @@ object RamBooster {
         return (info.availMem / 1048576L) to (info.totalMem / 1048576L)
     }
 
-    /** Turns "com.a, com.b" into a clean set of package names. */
-    fun parseKeep(raw: String): Set<String> =
-        raw.split(',', ' ', '\n', ';')
-            .map { it.trim() }
-            .filter { PKG.matches(it) }
+    /** Packages that have a home-screen icon. */
+    private fun launchable(ctx: Context): Set<String> = try {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        ctx.packageManager.queryIntentActivities(intent, 0)
+            .mapNotNull { it.activityInfo?.packageName }
             .toSet()
+    } catch (t: Throwable) {
+        emptySet()
+    }
 
     /** Blocking. Call from a background thread. */
     fun boost(ctx: Context, cfg: Config): Outcome {
@@ -95,7 +160,7 @@ object RamBooster {
         val targets = mutableListOf<String>()
         var note = ""
 
-        if (cfg.aggressive) {
+        if (cfg.mode >= Cfg.RAM_AGGRESSIVE) {
             val probe = ShizukuShell.exec(PROBE)
             if (probe.exitCode == -1) {
                 return Outcome(false, 0, emptyList(), probe.stderr.ifEmpty { "Shizuku command failed" })
@@ -104,7 +169,8 @@ object RamBooster {
             val protectedApps = mutableSetOf(ctx.packageName)
             protectedApps += ALWAYS_KEEP
             protectedApps += cfg.keep
-            val installed = mutableSetOf<String>()
+            val userApps = mutableSetOf<String>()
+            val systemApps = mutableSetOf<String>()
             val running = mutableSetOf<String>()
             var inProcessList = false
 
@@ -117,8 +183,8 @@ object RamBooster {
                         FOREGROUND.find(line)?.groupValues?.get(1)?.let { onScreen += it }
                     line.startsWith("SAFE:") ->
                         protectedApps += packagesIn(line.removePrefix("SAFE:"))
-                    line.startsWith("package:") ->
-                        installed += line.removePrefix("package:")
+                    line.startsWith("USER:") -> userApps += line.removePrefix("USER:")
+                    line.startsWith("SYSTEM:") -> systemApps += line.removePrefix("SYSTEM:")
                 }
             }
 
@@ -127,9 +193,16 @@ object RamBooster {
                 note = " (couldn't tell which app is on screen, so only cached apps were cleared)"
             } else {
                 protectedApps += onScreen
-                // Only apps you installed yourself can ever be closed. System apps
-                // are not in the "installed" list, so they are never touched.
-                targets += installed
+                val closable = userApps.toMutableSet()
+                if (cfg.mode >= Cfg.RAM_EXTREME) {
+                    // Preinstalled apps: only ones with an icon or known bloat,
+                    // and never anything that looks like part of the phone's core.
+                    val withIcon = launchable(ctx)
+                    closable += systemApps.filter {
+                        (it in withIcon || it in KNOWN_BLOAT) && !isCore(it)
+                    }
+                }
+                targets += closable
                     .filter { it in running && it !in protectedApps && PKG.matches(it) }
                     .sorted()
                 commands += targets.map { "am force-stop $it" }

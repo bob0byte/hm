@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.os.Build
@@ -22,10 +21,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
-import com.google.android.material.textfield.TextInputEditText
 import rikka.shizuku.Shizuku
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -59,7 +56,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ramHint: TextView
     private lateinit var ramSliderLabel: TextView
     private lateinit var ramSlider: Slider
-    private lateinit var keepList: TextInputEditText
+    private lateinit var keepSummary: TextView
+    private lateinit var chooseKeep: Button
     private lateinit var boostNowButton: Button
     private lateinit var applyButton: Button
     private lateinit var undoButton: Button
@@ -68,8 +66,6 @@ class MainActivity : AppCompatActivity() {
 
     /** True while the code (not the user) is flipping the auto mode switch. */
     private var settingSwitch = false
-
-    private data class AppEntry(val pkg: String, val label: String, val isGame: Boolean)
 
     // ---- Shizuku listeners -------------------------------------------------
 
@@ -127,7 +123,8 @@ class MainActivity : AppCompatActivity() {
         ramHint = findViewById(R.id.ramHint)
         ramSliderLabel = findViewById(R.id.ramSliderLabel)
         ramSlider = findViewById(R.id.ramSlider)
-        keepList = findViewById(R.id.keepList)
+        keepSummary = findViewById(R.id.keepSummary)
+        chooseKeep = findViewById(R.id.chooseKeep)
         boostNowButton = findViewById(R.id.boostNowButton)
         applyButton = findViewById(R.id.applyButton)
         undoButton = findViewById(R.id.undoButton)
@@ -138,6 +135,7 @@ class MainActivity : AppCompatActivity() {
 
         grantButton.setOnClickListener { requestShizuku() }
         chooseGames.setOnClickListener { showGamePicker() }
+        chooseKeep.setOnClickListener { showKeepPicker() }
         boostNowButton.setOnClickListener { onBoostNow() }
         applyButton.setOnClickListener { runTweaks(apply = true) }
         undoButton.setOnClickListener { runTweaks(apply = false) }
@@ -167,7 +165,6 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
-        prefs.edit().putString(Cfg.KEEP, keepList.text?.toString().orEmpty()).apply()
     }
 
     override fun onDestroy() {
@@ -227,7 +224,10 @@ class MainActivity : AppCompatActivity() {
         // RAM cleaner
         fillChips(
             ramChips,
-            listOf("Off" to Cfg.RAM_OFF, "Normal" to Cfg.RAM_NORMAL, "Aggressive" to Cfg.RAM_AGGRESSIVE),
+            listOf(
+                "Off" to Cfg.RAM_OFF, "Normal" to Cfg.RAM_NORMAL,
+                "Aggressive" to Cfg.RAM_AGGRESSIVE, "Extreme" to Cfg.RAM_EXTREME
+            ),
             prefs.getInt(Cfg.RAM_MODE, Cfg.RAM_NORMAL)
         ) {
             prefs.edit().putInt(Cfg.RAM_MODE, it).apply()
@@ -244,63 +244,72 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putInt(Cfg.RAM_INTERVAL, s).apply()
         }
 
-        keepList.setText(prefs.getString(Cfg.KEEP, ""))
+        refreshKeepSummary()
     }
 
     private fun showRamHint(mode: Int) {
         ramHint.text = when (mode) {
             Cfg.RAM_OFF -> "The cleaner won't run."
             Cfg.RAM_NORMAL -> "Closes apps that are only parked in the background. Safe."
-            else -> "Also force-closes running apps you installed. System apps, your " +
-                "keyboard, launcher, phone and SMS apps and anything playing audio are " +
-                "never closed. Closed apps go quiet until you open them again."
+            Cfg.RAM_AGGRESSIVE -> "Also closes running apps you installed. " +
+                "Closed apps go quiet until you open them again."
+            else -> "Also closes apps that came with the phone, like the store, browser, " +
+                "YouTube, Bixby and Facebook services. The phone, messages, clock, " +
+                "keyboard, home screen, settings and Android's own parts are never closed."
         }
     }
 
     // ---- Games -------------------------------------------------------------
 
-    private fun installedApps(): List<AppEntry> {
-        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        return packageManager.queryIntentActivities(launcher, 0)
-            .mapNotNull { it.activityInfo?.applicationInfo }
-            .distinctBy { it.packageName }
-            .filter { it.packageName != packageName }
-            .filter { (it.flags and ApplicationInfo.FLAG_SYSTEM) == 0 }
-            .map { info ->
-                @Suppress("DEPRECATION")
-                val isGame = info.category == ApplicationInfo.CATEGORY_GAME ||
-                    (info.flags and ApplicationInfo.FLAG_IS_GAME) != 0
-                AppEntry(info.packageName, packageManager.getApplicationLabel(info).toString(), isGame)
+    private fun showGamePicker() {
+        chooseGames.isEnabled = false
+        io.execute {
+            val apps = AppPicker.load(applicationContext, includeSystem = false)
+            ui.post {
+                chooseGames.isEnabled = true
+                if (isFinishing || isDestroyed) return@post
+                val saved = Cfg.games(prefs)
+                // First time: tick the apps Android already knows are games
+                val start = if (saved.isEmpty()) apps.filter { it.isGame }.map { it.pkg }.toSet()
+                else saved
+                AppPicker.show(this, "Choose your games", apps, start, gamesFirst = true) { picked ->
+                    // Drop apps that were uninstalled since last time
+                    val valid = picked.filter { p -> apps.any { it.pkg == p } }.toSet()
+                    prefs.edit().putStringSet(Cfg.GAMES, valid).apply()
+                    refreshGamesList()
+                }
             }
-            .sortedWith(compareByDescending<AppEntry> { it.isGame }.thenBy { it.label.lowercase(Locale.ROOT) })
+        }
     }
 
-    private fun showGamePicker() {
-        val apps = installedApps()
-        if (apps.isEmpty()) {
-            toast("No apps found")
-            return
+    private fun showKeepPicker() {
+        chooseKeep.isEnabled = false
+        io.execute {
+            val apps = AppPicker.load(applicationContext, includeSystem = true)
+            ui.post {
+                chooseKeep.isEnabled = true
+                if (isFinishing || isDestroyed) return@post
+                AppPicker.show(
+                    this, "Apps to never close or block", apps, Cfg.keep(prefs), gamesFirst = false
+                ) { picked ->
+                    prefs.edit().putStringSet(Cfg.KEEP, picked).apply()
+                    refreshKeepSummary()
+                }
+            }
         }
-        val saved = Cfg.games(prefs)
-        // First time: tick the apps Android already knows are games
-        val picked = (if (saved.isEmpty()) apps.filter { it.isGame }.map { it.pkg } else saved)
-            .toMutableSet()
-        val labels = apps.map { if (it.isGame) "${it.label}  ·  game" else it.label }.toTypedArray()
-        val checked = apps.map { it.pkg in picked }.toBooleanArray()
+    }
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Choose your games")
-            .setMultiChoiceItems(labels, checked) { _, index, isChecked ->
-                if (isChecked) picked += apps[index].pkg else picked -= apps[index].pkg
-            }
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Done") { _, _ ->
-                // Drop apps that were uninstalled since last time
-                val valid = picked.filter { p -> apps.any { it.pkg == p } }.toSet()
-                prefs.edit().putStringSet(Cfg.GAMES, valid).apply()
-                refreshGamesList()
-            }
-            .show()
+    private fun appName(pkg: String): String = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    } catch (t: Throwable) {
+        pkg
+    }
+
+    private fun refreshKeepSummary() {
+        val keep = Cfg.keep(prefs)
+        keepSummary.text =
+            if (keep.isEmpty()) "Protected apps: none yet. Add apps like WhatsApp that must keep working."
+            else "Protected apps: " + keep.map { appName(it) }.sorted().joinToString(", ")
     }
 
     private fun refreshGamesList() {
@@ -309,13 +318,7 @@ class MainActivity : AppCompatActivity() {
             gamesList.text = "None chosen yet. Detected games are ticked for you when you open the list."
             return
         }
-        val names = games.map { pkg ->
-            try {
-                packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
-            } catch (t: Throwable) {
-                pkg
-            }
-        }.sorted()
+        val names = games.map { appName(it) }.sorted()
         gamesList.text = names.joinToString("\n") { "•  $it" }
     }
 
@@ -397,12 +400,16 @@ class MainActivity : AppCompatActivity() {
         applyButton.isEnabled = false
         undoButton.isEnabled = false
         io.execute {
-            if (apply) Tweaks.prepare(prefs)
+            if (apply) Tweaks.prepare(prefs, inGame = false)
             val steps =
-                if (apply) Tweaks.start(display, prefs, games) else Tweaks.stop(prefs, games)
+                if (apply) Tweaks.start(display, prefs, games, inGame = false)
+                else Tweaks.stop(prefs, games)
             val done = Tweaks.run(steps)
-            // Undo also gives every app its internet back
-            if (!apply && NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
+            if (!apply) {
+                Tweaks.forgetOriginals(prefs)
+                // Undo also gives every app its internet back
+                if (NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
+            }
             ui.post {
                 applyButton.isEnabled = true
                 undoButton.isEnabled = true
@@ -431,13 +438,12 @@ class MainActivity : AppCompatActivity() {
             toast("Shizuku isn't ready yet")
             return
         }
-        val keepText = keepList.text?.toString().orEmpty()
-        prefs.edit().putString(Cfg.KEEP, keepText).apply()
-        val keep = RamBooster.parseKeep(keepText) + Cfg.games(prefs)
-        val aggressive = prefs.getInt(Cfg.RAM_MODE, Cfg.RAM_NORMAL) == Cfg.RAM_AGGRESSIVE
+        val keep = Cfg.keep(prefs) + Cfg.games(prefs)
+        // "Off" only switches the timer off; the button still does a normal clear
+        val mode = prefs.getInt(Cfg.RAM_MODE, Cfg.RAM_NORMAL).coerceAtLeast(Cfg.RAM_NORMAL)
         boostNowButton.isEnabled = false
         io.execute {
-            val outcome = RamBooster.boost(applicationContext, RamBooster.Config(aggressive, keep))
+            val outcome = RamBooster.boost(applicationContext, RamBooster.Config(mode, keep))
             ui.post {
                 boostNowButton.isEnabled = true
                 showResult(

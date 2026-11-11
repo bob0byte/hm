@@ -98,8 +98,12 @@ class GameService : Service() {
             // If a past session ended badly, give apps their internet back
             executor.execute {
                 try {
-                    if (ShizukuShell.ready() && NetBlocker.hasLeftovers(prefs)) {
-                        NetBlocker.unblock(prefs)
+                    if (ShizukuShell.ready()) {
+                        if (NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
+                        if (Tweaks.hasLeftovers(prefs)) {
+                            Tweaks.run(Tweaks.stop(prefs, emptyList()))
+                            Tweaks.forgetOriginals(prefs)
+                        }
                     }
                 } catch (t: Throwable) {
                 }
@@ -173,19 +177,34 @@ class GameService : Service() {
     private fun beginSession(pkg: String) {
         game = pkg
         misses = 0
-        lastBoost = SystemClock.elapsedRealtime()
+        lastBoost = 0L   // clear RAM right away when the game opens
         shownFps = -1
         renderedFps = -1
         gameLabel = labelOf(pkg)
 
-        Tweaks.prepare(prefs)
-        val done = Tweaks.run(Tweaks.start(display, prefs, listOf(pkg)))
+        val hzBefore = display.refreshRate
+        Tweaks.prepare(prefs, inGame = true)
+        val done = Tweaks.run(Tweaks.start(display, prefs, listOf(pkg), inGame = true))
         val worked = done.count { it.ok }
         lastSession = "${worked} of ${done.size} tweaks applied"
 
+        // Safety check: if holding the screen rate made the screen SLOWER on this
+        // phone, undo it at once and never try it again here.
+        if (prefs.getBoolean(Cfg.INPUT, true) && !Tweaks.screenHoldBad(prefs)) {
+            try {
+                Thread.sleep(1500)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+            if (display.refreshRate < hzBefore - 1f) {
+                Tweaks.run(Tweaks.screenOff(prefs))
+                Tweaks.markScreenHoldBad(prefs)
+                lastSession += " · screen hold switched off (it slowed this screen down)"
+            }
+        }
+
         if (prefs.getBoolean(Cfg.NET_BLOCK, false)) {
-            val keep = RamBooster.parseKeep(prefs.getString(Cfg.KEEP, "").orEmpty()) +
-                Cfg.games(prefs)
+            val keep = Cfg.keep(prefs) + Cfg.games(prefs)
             val net = NetBlocker.block(this, prefs, keep)
             if (net.ok && net.count > 0) lastSession += " · ${net.count} apps offline"
         }
@@ -206,10 +225,8 @@ class GameService : Service() {
         val now = SystemClock.elapsedRealtime()
         if (mode != Cfg.RAM_OFF && now - lastBoost >= interval) {
             lastBoost = now
-            val keep = RamBooster.parseKeep(prefs.getString(Cfg.KEEP, "").orEmpty()) + games
-            val outcome = RamBooster.boost(
-                this, RamBooster.Config(mode == Cfg.RAM_AGGRESSIVE, keep)
-            )
+            val keep = Cfg.keep(prefs) + games
+            val outcome = RamBooster.boost(this, RamBooster.Config(mode, keep))
             if (outcome.ok) freedMb += outcome.freedMb
         }
 
@@ -238,6 +255,7 @@ class GameService : Service() {
         game = null
         misses = 0
         Tweaks.run(Tweaks.stop(prefs, listOf(pkg)))
+        Tweaks.forgetOriginals(prefs)
         if (NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
         meter.stop()
         hideOverlay()
