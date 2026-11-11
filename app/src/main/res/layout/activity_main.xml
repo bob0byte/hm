@@ -101,24 +101,29 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Auto game mode -->
-        <com.google.android.material.card.MaterialCardView style="@style/Card">
+        <!-- Start / stop -->
+        <Button
+            android:id="@+id/startButton"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="14dp"
+            android:text="Start boosting"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
-            <LinearLayout style="@style/CardBody">
+        <TextView
+            android:id="@+id/boostStatus"
+            style="@style/Hint"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/text"
+            android:text="Not running. Choose your settings below, then press Start boosting." />
 
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/autoMode"
-                    style="@style/Toggle"
-                    android:text="Auto game mode"
-                    android:textSize="17sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/autoStatus"
-                    style="@style/Hint"
-                    android:text="Off. Turn it on and the app boosts by itself whenever one of your games opens, then puts everything back when you leave." />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+        <TextView
+            android:id="@+id/boostDetails"
+            style="@style/Hint"
+            android:layout_marginTop="6dp"
+            android:lineSpacingExtra="2dp"
+            android:visibility="gone" />
 
         <!-- Games -->
         <com.google.android.material.card.MaterialCardView style="@style/Card">
@@ -157,11 +162,11 @@
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/inputSwitch"
                     style="@style/Toggle"
-                    android:text="Input lag reducer" />
+                    android:text="Keep the screen at its fastest rate" />
 
                 <TextView
                     style="@style/Hint"
-                    android:text="Holds the screen at its fastest rate so each tap shows on the very next frame. If that ever makes the screen slower on this phone, the app undoes it by itself." />
+                    android:text="Cuts input lag: each tap shows on the very next frame. While boosting, the app checks the screen every 2 seconds and forces it back if anything drops it to 60." />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/perfSwitch"
@@ -186,7 +191,7 @@
                 <TextView
                     style="@style/Hint"
                     android:layout_marginTop="8dp"
-                    android:text="Screen resolution while playing (lower = faster and blurrier). Used by auto game mode only, and put back when you leave the game." />
+                    android:text="Screen resolution while one of your games is open (lower = faster and blurrier). Put back when you leave the game." />
 
                 <com.google.android.material.chip.ChipGroup
                     android:id="@+id/scaleChips"
@@ -195,6 +200,31 @@
                     android:layout_marginTop="4dp"
                     app:selectionRequired="true"
                     app:singleSelection="true" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Developer options -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
+
+            <LinearLayout style="@style/CardBody">
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="Developer options" />
+
+                <TextView
+                    style="@style/Hint"
+                    android:text="Set for you while boosting, and put back when you stop." />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/uncapSwitch"
+                    style="@style/Toggle"
+                    android:text="Disable default frame rate for games" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/animSwitch"
+                    style="@style/Toggle"
+                    android:text="Faster animations (0.5x)" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -210,7 +240,7 @@
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/netSwitch"
                     style="@style/Toggle"
-                    android:text="Take other apps offline while playing" />
+                    android:text="Take other apps offline while a game is open" />
 
                 <TextView
                     style="@style/Hint"
@@ -288,30 +318,6 @@
                     android:text="Clear RAM now" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
-        <!-- Manual -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/applyButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="8dp"
-                android:layout_weight="1"
-                android:text="Apply now" />
-
-            <Button
-                android:id="@+id/undoButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Undo everything" />
-        </LinearLayout>
 
         <TextView
             android:id="@+id/resultLine"

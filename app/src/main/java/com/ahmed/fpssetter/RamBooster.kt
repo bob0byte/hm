@@ -95,7 +95,7 @@ object RamBooster {
     // depends on, installed apps, and running process names.
     private val PROBE = listOf(
         // Every app with a window on screen (covers split screen too)
-        "dumpsys activity activities | grep -E 'ResumedActivity' | sed 's/^/FG:/'",
+        "dumpsys activity activities | grep 'ResumedActivity' | grep -v 'Last' | sed 's/^/FG:/'",
         // Apps the phone relies on: keyboard, launcher, dialer, SMS, accessibility,
         // notification access, VPN, assistant, autofill, device admin, live
         // wallpaper, and anything with an active media session (music, calls)

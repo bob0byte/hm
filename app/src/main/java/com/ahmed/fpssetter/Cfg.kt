@@ -9,7 +9,9 @@ object Cfg {
 
     const val GAMES = "games"            // set of package names
     const val KEEP = "keepSet"           // apps never closed or blocked
-    const val INPUT = "inputLag"         // input lag reducer
+    const val INPUT = "inputLag"         // keep the screen at its fastest rate
+    const val UNCAP = "uncap"            // developer option: disable default frame rate for games
+    const val ANIM = "anim"              // developer option: faster animations
     const val NET_BLOCK = "netBlock"     // block other apps' internet while playing
     const val PERF = "perf"
     const val SAVER_OFF = "saverOff"

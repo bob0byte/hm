@@ -33,11 +33,14 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
- * Auto game mode.
+ * The boost itself. Runs from "Start boosting" until "Stop boosting".
  *
- * Checks every couple of seconds which app is on screen. When one of your
- * chosen games opens it applies your tweaks, starts clearing RAM and shows
- * the FPS counter. When you leave the game it puts everything back.
+ * On start:    checks Shizuku really works, applies your settings and shows a
+ *              confirmation notification.
+ * While on:    clears RAM on a timer, keeps the screen at its fastest rate,
+ *              and gives extra help (performance mode, lower resolution,
+ *              Wi-Fi guard, FPS counter) while one of your games is open.
+ * On stop:     puts every setting back the way it was.
  */
 class GameService : Service() {
 
@@ -48,16 +51,25 @@ class GameService : Service() {
     private lateinit var prefs: SharedPreferences
     private lateinit var display: Display
 
+    private var started = false
     private var game: String? = null
     private var misses = 0
     private var lastBoost = 0L
     private var lastNotified = ""
+    private var ticks = 0
+    private var pingMs = -1
+
+    // Keeping the screen fast
+    private var guardStage = 0
+    private var lowTicks = 0
+    private var guardNote = ""
+
+    // In-game counter
     private var overlay: TextView? = null
+    private var overlayOn = false
 
     private val foreground = Regex("u\\d+ ([A-Za-z0-9_.]+)/")
     private val pingTime = Regex("time=([0-9.]+)")
-    private var ticks = 0
-    private var pingMs = -1
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -74,7 +86,7 @@ class GameService : Service() {
             return START_NOT_STICKY
         }
 
-        createChannel()
+        createChannels()
         val notification = buildNotification("Starting…")
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(
@@ -92,22 +104,9 @@ class GameService : Service() {
                 try {
                     tick()
                 } catch (t: Throwable) {
-                    // Never let one bad pass stop the watcher
+                    // Never let one bad pass stop the boost
                 }
             }, 0, TICK_SECONDS, TimeUnit.SECONDS)
-            // If a past session ended badly, give apps their internet back
-            executor.execute {
-                try {
-                    if (ShizukuShell.ready()) {
-                        if (NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
-                        if (Tweaks.hasLeftovers(prefs)) {
-                            Tweaks.run(Tweaks.stop(prefs, emptyList()))
-                            Tweaks.forgetOriginals(prefs)
-                        }
-                    }
-                } catch (t: Throwable) {
-                }
-            }
             worker = executor
         }
         return START_STICKY
@@ -117,9 +116,10 @@ class GameService : Service() {
         // Put everything back before the service goes away
         val executor = worker
         worker = null
+        val wasStarted = started
         executor?.execute {
             try {
-                if (game != null) endSession()
+                if (wasStarted) stopBoost()
             } catch (t: Throwable) {
             }
         }
@@ -129,136 +129,221 @@ class GameService : Service() {
         super.onDestroy()
     }
 
-    // ---- The watcher -------------------------------------------------------
+    // ---- Start / stop ------------------------------------------------------
+
+    private fun startBoost() {
+        // Prove Shizuku is really running our commands
+        val id = ShizukuShell.exec("id -u")
+        val who = when (id.stdout.trim()) {
+            "0" -> "root"
+            "2000" -> "shell"
+            else -> ""
+        }
+        if (!id.ok || who.isEmpty()) {
+            verified = ""
+            setStatus("Shizuku didn't run the test command. Open Shizuku and check it is running.")
+            return
+        }
+        verified = "Shizuku verified (commands run as $who)"
+
+        // Let our notifications through without a pop-up asking
+        if (Build.VERSION.SDK_INT >= 33) {
+            ShizukuShell.exec("pm grant $packageName android.permission.POST_NOTIFICATIONS")
+        }
+
+        // Clean up after a session that ended badly
+        if (NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
+        if (Tweaks.hasLeftovers(prefs)) Tweaks.stop(prefs)
+
+        val done = Tweaks.start(display, prefs)
+        report = done
+        started = true
+        guardStage = 0
+        lowTicks = 0
+        guardNote = ""
+        lastBoost = 0L   // first RAM clear happens right away
+        freedMb = 0
+
+        val on = done.count { it.ok }
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(
+            CONFIRM_ID,
+            NotificationCompat.Builder(this, CONFIRM_CHANNEL)
+                .setSmallIcon(R.drawable.ic_boost)
+                .setContentTitle("Boosting is running ✓")
+                .setContentText("Connected to Shizuku · $on settings switched on")
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        "Connected to Shizuku and verified.\n" +
+                            done.filter { it.ok }.joinToString("\n") { "✓ ${it.label}" }
+                    )
+                )
+                .setAutoCancel(true)
+                .setTimeoutAfter(15_000)
+                .setContentIntent(openApp())
+                .build()
+        )
+        setStatus("Boosting · $on settings on")
+    }
+
+    private fun stopBoost() {
+        if (game != null) endGame()
+        if (NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
+        Tweaks.stop(prefs)
+        started = false
+        report = emptyList()
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.cancel(CONFIRM_ID)
+    }
+
+    // ---- The loop ----------------------------------------------------------
 
     private fun tick() {
         if (!ShizukuShell.ready()) {
             setStatus("Waiting for Shizuku. Start it to continue.")
             return
         }
-        val games = Cfg.games(prefs)
-        if (games.isEmpty()) {
-            if (game != null) endSession()
-            setStatus("Pick your games in the app first.")
+        if (!started) {
+            startBoost()
+            if (!started) return
+        }
+        // Nothing to do while the screen is off
+        if (display.state != Display.STATE_ON) return
+
+        guardScreenRate()
+        watchForGames()
+        clearRamIfDue()
+        game?.let { duringGame(it) }
+        ticks++
+
+        setStatus(buildString {
+            append(if (gameLabel.isNotEmpty()) "Boosting $gameLabel" else "Boosting")
+            append(" · ${report.count { it.ok }} settings on")
+            if (freedMb > 0) append(" · $freedMb MB cleared")
+            if (guardNote.isNotEmpty()) append("\n$guardNote")
+        })
+    }
+
+    /** If anything pushes the screen below its fastest rate, push it back. */
+    private fun guardScreenRate() {
+        if (!prefs.getBoolean(Cfg.INPUT, true) || guardStage > Tweaks.GUARD_STAGES) return
+        val max = Tweaks.maxHz(display)
+        if (max <= 60) return
+        if (display.refreshRate >= max - 1f) {
+            lowTicks = 0
+            if (guardStage > 0) guardNote = "Screen held at $max Hz"
             return
         }
+        // Ignore a single short dip
+        if (++lowTicks < 2) return
+        lowTicks = 0
 
+        while (guardStage < Tweaks.GUARD_STAGES) {
+            val done = Tweaks.guard(display, prefs, guardStage++)
+            if (done != null) {
+                guardNote = "Screen fell below $max Hz, forcing it back…"
+                return
+            }
+        }
+        // Every method was tried and the screen is still slow
+        guardStage = Tweaks.GUARD_STAGES + 1
+        Tweaks.giveUpScreen(prefs)
+        guardNote = "Couldn't hold $max Hz: the phone or this app is forcing a lower rate."
+    }
+
+    private fun watchForGames() {
+        val games = Cfg.games(prefs)
+        if (games.isEmpty()) {
+            if (game != null) endGame()
+            return
+        }
         val onScreen = foregroundPackages() ?: return
         val found = onScreen.firstOrNull { it in games }
-
         when {
             found != null && found == game -> misses = 0
             found != null -> {
-                if (game != null) endSession()
-                beginSession(found)
+                if (game != null) endGame()
+                beginGame(found)
             }
             game != null -> {
-                // Give it one extra check so a pop-up doesn't end the session
-                misses++
-                if (misses >= 2) {
-                    endSession()
-                    setStatus("Watching for your games")
-                }
+                // One extra check so a pop-up doesn't end the game session
+                if (++misses >= 2) endGame()
             }
-            else -> setStatus("Watching for your games")
         }
-
-        game?.let { duringSession(it, games) }
     }
 
     /** Packages with a window on screen, or null if it couldn't be read. */
     private fun foregroundPackages(): Set<String>? {
-        val r = ShizukuShell.exec("dumpsys activity activities | grep -E 'ResumedActivity'")
+        val r = ShizukuShell.exec(
+            "dumpsys activity activities | grep 'ResumedActivity' | grep -v 'Last'"
+        )
         if (r.exitCode == -1) return null
         val found = foreground.findAll(r.stdout).map { it.groupValues[1] }.toSet()
         return found.ifEmpty { null }
     }
 
-    private fun beginSession(pkg: String) {
-        game = pkg
-        misses = 0
-        lastBoost = 0L   // clear RAM right away when the game opens
-        shownFps = -1
-        renderedFps = -1
-        gameLabel = labelOf(pkg)
-
-        val hzBefore = display.refreshRate
-        Tweaks.prepare(prefs, inGame = true)
-        val done = Tweaks.run(Tweaks.start(display, prefs, listOf(pkg), inGame = true))
-        val worked = done.count { it.ok }
-        lastSession = "${worked} of ${done.size} tweaks applied"
-
-        // Safety check: if holding the screen rate made the screen SLOWER on this
-        // phone, undo it at once and never try it again here.
-        if (prefs.getBoolean(Cfg.INPUT, true) && !Tweaks.screenHoldBad(prefs)) {
-            try {
-                Thread.sleep(1500)
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-            }
-            if (display.refreshRate < hzBefore - 1f) {
-                Tweaks.run(Tweaks.screenOff(prefs))
-                Tweaks.markScreenHoldBad(prefs)
-                lastSession += " · screen hold switched off (it slowed this screen down)"
-            }
-        }
-
-        if (prefs.getBoolean(Cfg.NET_BLOCK, false)) {
-            val keep = Cfg.keep(prefs) + Cfg.games(prefs)
-            val net = NetBlocker.block(this, prefs, keep)
-            if (net.ok && net.count > 0) lastSession += " · ${net.count} apps offline"
-        }
-        ticks = 0
-        pingMs = -1
-
-        if (prefs.getBoolean(Cfg.OVERLAY, true)) {
-            meter.start()
-            showOverlay()
-        }
-        setStatus("Boosting $gameLabel · $lastSession")
-    }
-
-    private fun duringSession(pkg: String, games: Set<String>) {
-        // RAM
+    private fun clearRamIfDue() {
         val mode = prefs.getInt(Cfg.RAM_MODE, Cfg.RAM_NORMAL)
+        if (mode == Cfg.RAM_OFF) return
         val interval = prefs.getInt(Cfg.RAM_INTERVAL, 30).coerceIn(10, 600) * 1000L
         val now = SystemClock.elapsedRealtime()
-        if (mode != Cfg.RAM_OFF && now - lastBoost >= interval) {
-            lastBoost = now
-            val keep = Cfg.keep(prefs) + games
-            val outcome = RamBooster.boost(this, RamBooster.Config(mode, keep))
-            if (outcome.ok) freedMb += outcome.freedMb
-        }
+        if (lastBoost != 0L && now - lastBoost < interval) return
+        lastBoost = now
+        val keep = Cfg.keep(prefs) + Cfg.games(prefs)
+        val outcome = RamBooster.boost(this, RamBooster.Config(mode, keep))
+        if (outcome.ok) freedMb += outcome.freedMb
+    }
 
-        // FPS
-        if (prefs.getBoolean(Cfg.OVERLAY, true)) {
-            if (overlay == null) {
-                meter.start()
-                showOverlay()
-            }
-            meter.read(pkg)?.let {
-                shownFps = it.shown
-                renderedFps = it.rendered
-            }
-            // Ping every few checks; it doesn't need to be as fresh as FPS
-            if (ticks % 3 == 0) pingMs = measurePing()
-            ticks++
-            updateOverlay()
-        } else if (overlay != null) {
+    // ---- While a chosen game is open ---------------------------------------
+
+    private fun beginGame(pkg: String) {
+        game = pkg
+        misses = 0
+        shownFps = -1
+        renderedFps = -1
+        pingMs = -1
+        gameLabel = labelOf(pkg)
+
+        Tweaks.gameStart(prefs, pkg)
+        if (prefs.getBoolean(Cfg.NET_BLOCK, false)) {
+            NetBlocker.block(this, prefs, Cfg.keep(prefs) + Cfg.games(prefs))
+        }
+        lastBoost = 0L   // clear RAM as the game opens
+    }
+
+    private fun duringGame(pkg: String) {
+        val wanted = prefs.getBoolean(Cfg.OVERLAY, true)
+        if (wanted && !overlayOn) {
+            overlayOn = true
+            meter.start()
+            showOverlay()
+        } else if (!wanted && overlayOn) {
+            overlayOn = false
             hideOverlay()
             meter.stop()
         }
+        if (!overlayOn) return
+
+        meter.read(pkg)?.let {
+            shownFps = it.shown
+            renderedFps = it.rendered
+        }
+        // Ping every few checks; it doesn't need to be as fresh as FPS
+        if (ticks % 3 == 0) pingMs = measurePing()
+        updateOverlay()
     }
 
-    private fun endSession() {
+    private fun endGame() {
         val pkg = game ?: return
         game = null
         misses = 0
-        Tweaks.run(Tweaks.stop(prefs, listOf(pkg)))
-        Tweaks.forgetOriginals(prefs)
+        Tweaks.gameStop(prefs, pkg)
         if (NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
-        meter.stop()
-        hideOverlay()
+        if (overlayOn) {
+            overlayOn = false
+            meter.stop()
+            hideOverlay()
+        }
         shownFps = -1
         renderedFps = -1
         gameLabel = ""
@@ -270,7 +355,7 @@ class GameService : Service() {
         pkg
     }
 
-    // ---- In-game FPS counter -----------------------------------------------
+    // ---- In-game counter ---------------------------------------------------
 
     private fun showOverlay() {
         if (!Settings.canDrawOverlays(this)) {
@@ -358,7 +443,7 @@ class GameService : Service() {
         }
     }
 
-    // ---- Notification ------------------------------------------------------
+    // ---- Notifications -----------------------------------------------------
 
     private fun setStatus(text: String) {
         status = text
@@ -368,46 +453,59 @@ class GameService : Service() {
         nm.notify(NOTIFICATION_ID, buildNotification(text))
     }
 
-    private fun createChannel() {
+    private fun createChannels() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(
-            CHANNEL_ID, "Auto game mode", NotificationManager.IMPORTANCE_LOW
+        val ongoing = NotificationChannel(
+            CHANNEL_ID, "Boost status", NotificationManager.IMPORTANCE_LOW
         )
-        channel.setShowBadge(false)
-        nm.createNotificationChannel(channel)
+        ongoing.setShowBadge(false)
+        nm.createNotificationChannel(ongoing)
+
+        // Pops up once when boosting starts, without a sound
+        val confirm = NotificationChannel(
+            CONFIRM_CHANNEL, "Boost started", NotificationManager.IMPORTANCE_HIGH
+        )
+        confirm.setSound(null, null)
+        confirm.enableVibration(false)
+        nm.createNotificationChannel(confirm)
     }
 
+    private fun openApp(): PendingIntent = PendingIntent.getActivity(
+        this, 0, Intent(this, MainActivity::class.java),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
+
     private fun buildNotification(text: String): Notification {
-        val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
         val stop = PendingIntent.getService(
             this, 1, Intent(this, GameService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_boost)
-            .setContentTitle("Auto game mode is on")
+            .setContentTitle("Boosting is on")
             .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setContentIntent(open)
-            .addAction(0, "Turn off", stop)
+            .setContentIntent(openApp())
+            .addAction(0, "Stop boosting", stop)
             .build()
     }
 
     companion object {
         const val ACTION_STOP = "com.ahmed.fpssetter.STOP"
-        private const val CHANNEL_ID = "auto"
+        private const val CHANNEL_ID = "status"
+        private const val CONFIRM_CHANNEL = "started"
         private const val NOTIFICATION_ID = 42
+        private const val CONFIRM_ID = 43
         private const val TICK_SECONDS = 2L
 
         // Read by the main screen
         @Volatile var running = false
         @Volatile var status = ""
+        @Volatile var verified = ""
         @Volatile var gameLabel = ""
-        @Volatile var lastSession = ""
+        @Volatile var report: List<Tweaks.Done> = emptyList()
         @Volatile var shownFps = -1
         @Volatile var renderedFps = -1
         @Volatile var freedMb = 0L
