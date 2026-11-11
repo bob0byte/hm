@@ -242,7 +242,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Aggressive mode closes every app you installed except the one on screen, your keyboard and your launcher. Closed apps stop sending notifications until you open them again."
+            android:text="System apps are never closed, so the phone stays stable. Aggressive mode only closes apps you installed, and skips whatever is on screen, your keyboard, launcher, phone and SMS apps, VPN, accessibility and notification-access apps, live wallpaper, and anything playing audio. Closed apps stop sending notifications until you open them again."
             android:textAppearance="?attr/textAppearanceBodySmall" />
 
         <com.google.android.material.textfield.TextInputLayout

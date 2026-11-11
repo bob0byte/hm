@@ -34,9 +34,17 @@ clear while you play. Uses Shizuku (no root needed).
   notification and a Stop button.
 - Normal mode runs `am kill-all`, which closes apps that are only cached in
   the background.
-- **Aggressive** also runs `am force-stop` on every running app you installed,
-  except the app on screen, your keyboard, your launcher, Shizuku, this app,
-  the game package, and anything in the keep list.
+- **Aggressive** also runs `am force-stop` on running apps you installed.
+
+### What is never closed
+
+- Any system app (only apps you installed yourself can be closed).
+- The app or apps on screen, this app, Shizuku, Google Play services, Play Store.
+- Your keyboard, launcher, phone app, SMS app, assistant and autofill service.
+- Apps with accessibility or notification access, your always-on VPN,
+  device admin apps, your live wallpaper, and apps with an active media
+  session (music, calls).
+- The game package and everything in the "never close" list.
 
 ## Get the APK
 
