@@ -3,160 +3,288 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/bg"
     android:fitsSystemWindows="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:paddingStart="16dp"
+        android:paddingTop="20dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="32dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/app_name"
-            android:textAppearance="?attr/textAppearanceHeadlineMedium" />
+            android:textColor="@color/text"
+            android:textSize="28sp"
+            android:textStyle="bold" />
 
-        <!-- Shizuku status -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
+        <TextView
+            android:id="@+id/shizukuStatus"
+            style="@style/Hint"
+            android:layout_marginTop="2dp"
+            android:text="Shizuku: checking…" />
+
+        <Button
+            android:id="@+id/grantButton"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp">
+            android:layout_marginTop="6dp"
+            android:text="Give Shizuku access"
+            android:visibility="gone" />
+
+        <!-- Live numbers -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
+                android:baselineAligned="false"
                 android:orientation="horizontal"
                 android:padding="16dp">
 
-                <TextView
-                    android:id="@+id/shizukuStatus"
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Shizuku: checking…"
-                    android:textAppearance="?attr/textAppearanceBodyLarge" />
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/statScreen"
+                        style="@style/StatValue"
+                        android:text="--" />
+
+                    <TextView
+                        android:id="@+id/statScreenLabel"
+                        style="@style/StatLabel"
+                        android:text="SCREEN HZ" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/statGame"
+                        style="@style/StatValue"
+                        android:text="--" />
+
+                    <TextView
+                        android:id="@+id/statGameLabel"
+                        style="@style/StatLabel"
+                        android:text="GAME FPS" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/statRam"
+                        style="@style/StatValue"
+                        android:text="--" />
+
+                    <TextView
+                        android:id="@+id/statRamLabel"
+                        style="@style/StatLabel"
+                        android:text="GB RAM FREE" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Auto game mode -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
+
+            <LinearLayout style="@style/CardBody">
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/autoMode"
+                    style="@style/Toggle"
+                    android:text="Auto game mode"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/autoStatus"
+                    style="@style/Hint"
+                    android:text="Off. Turn it on and the app boosts by itself whenever one of your games opens, then puts everything back when you leave." />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Games -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
+
+            <LinearLayout style="@style/CardBody">
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="My games" />
+
+                <TextView
+                    android:id="@+id/gamesList"
+                    style="@style/Hint"
+                    android:layout_marginTop="4dp"
+                    android:text="None chosen yet" />
 
                 <Button
-                    android:id="@+id/grantButton"
+                    android:id="@+id/chooseGames"
                     style="@style/Widget.Material3.Button.TonalButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Grant" />
+                    android:layout_marginTop="8dp"
+                    android:text="Choose games" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Live refresh rate -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp">
+        <!-- Screen -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_horizontal"
-                android:orientation="vertical"
-                android:padding="16dp">
+            <LinearLayout style="@style/CardBody">
 
                 <TextView
-                    android:id="@+id/liveFps"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="--"
-                    android:textAppearance="?attr/textAppearanceDisplayLarge" />
+                    style="@style/CardTitle"
+                    android:text="Screen" />
 
                 <TextView
-                    android:id="@+id/modeInfo"
-                    android:layout_width="wrap_content"
+                    style="@style/Hint"
+                    android:text="Refresh rate while playing" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/rateChips"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="frames per second right now"
-                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+                    android:layout_marginTop="4dp"
+                    app:selectionRequired="true"
+                    app:singleSelection="true" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/lockSwitch"
+                    style="@style/Toggle"
+                    android:text="Lock it so the system can't drop lower" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="Rates your screen supports"
-            android:textAppearance="?attr/textAppearanceTitleMedium" />
+        <!-- Speed and input lag -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
 
-        <com.google.android.material.chip.ChipGroup
-            android:id="@+id/rateChips"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:selectionRequired="false"
-            app:singleSelection="true" />
+            <LinearLayout style="@style/CardBody">
 
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="Or type a custom FPS">
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="Speed and input lag" />
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/customFps"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="numberDecimal"
-                android:maxLength="6" />
-        </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/uncapSwitch"
+                    style="@style/Toggle"
+                    android:text="Remove Android's game FPS cap" />
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/lockMin"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:checked="true"
-            android:text="Lock it (stop the system dropping lower)" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/perfSwitch"
+                    style="@style/Toggle"
+                    android:text="Performance mode for the game" />
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/forceMode"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Force display mode (stronger, Android 13+)" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/saverSwitch"
+                    style="@style/Toggle"
+                    android:text="Turn battery saver off" />
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/vendorExtras"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:checked="true"
-            android:text="Also set brand-specific keys (Xiaomi, Samsung)" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/dndSwitch"
+                    style="@style/Toggle"
+                    android:text="Do not disturb while playing" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="System limits on games"
-            android:textAppearance="?attr/textAppearanceTitleMedium" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/overlaySwitch"
+                    style="@style/Toggle"
+                    android:text="Show FPS counter in game" />
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/removeGameCap"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:checked="true"
-            android:text="Remove Android's default game FPS cap (15+)" />
+                <TextView
+                    style="@style/Hint"
+                    android:layout_marginTop="8dp"
+                    android:text="Render resolution (lower = faster frames, blurrier picture)" />
 
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="Game package (optional)"
-            app:helperText="Example: com.tencent.ig">
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/scaleChips"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    app:selectionRequired="true"
+                    app:singleSelection="true" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/gamePackage"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textNoSuggestions"
-                android:maxLength="120" />
-        </com.google.android.material.textfield.TextInputLayout>
+        <!-- RAM -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
 
+            <LinearLayout style="@style/CardBody">
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="RAM cleaner" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/ramChips"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    app:selectionRequired="true"
+                    app:singleSelection="true" />
+
+                <TextView
+                    android:id="@+id/ramHint"
+                    style="@style/Hint" />
+
+                <TextView
+                    android:id="@+id/ramSliderLabel"
+                    style="@style/Hint"
+                    android:layout_marginTop="12dp"
+                    android:text="Clear every 30 seconds" />
+
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/ramSlider"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:stepSize="5"
+                    android:value="30"
+                    android:valueFrom="10"
+                    android:valueTo="120"
+                    app:labelBehavior="gone" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:hint="Apps to never close (optional)"
+                    app:helperText="Package names with commas, e.g. com.whatsapp, com.discord">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/keepList"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textNoSuggestions|textMultiLine" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <Button
+                    android:id="@+id/boostNowButton"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Clear RAM now" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Manual -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -169,134 +297,37 @@
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="8dp"
                 android:layout_weight="1"
-                android:text="Apply" />
+                android:text="Apply now" />
 
             <Button
-                android:id="@+id/resetButton"
+                android:id="@+id/undoButton"
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Reset to default" />
-        </LinearLayout>
-
-        <!-- RAM booster -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="RAM booster"
-            android:textAppearance="?attr/textAppearanceTitleMedium" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:id="@+id/ramInfo"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="RAM free: --"
-                    android:textAppearance="?attr/textAppearanceTitleLarge" />
-
-                <TextView
-                    android:id="@+id/boostStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Auto boost is off"
-                    android:textAppearance="?attr/textAppearanceBodyMedium" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:hint="Clear RAM every (seconds)"
-            app:helperText="10 to 600. 30 is a good start.">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/boostInterval"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:maxLength="3" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/aggressive"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Aggressive: also force-close running apps" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="System apps are never closed, so the phone stays stable. Aggressive mode only closes apps you installed, and skips whatever is on screen, your keyboard, launcher, phone and SMS apps, VPN, accessibility and notification-access apps, live wallpaper, and anything playing audio. Closed apps stop sending notifications until you open them again."
-            android:textAppearance="?attr/textAppearanceBodySmall" />
-
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:hint="Apps to never close (optional)"
-            app:helperText="Package names separated by commas, e.g. com.whatsapp, com.discord">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/keepList"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textNoSuggestions|textMultiLine" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/boostNowButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="8dp"
-                android:layout_weight="1"
-                android:text="Boost now" />
-
-            <Button
-                android:id="@+id/autoBoostButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Start auto boost" />
+                android:text="Undo everything" />
         </LinearLayout>
 
         <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="Log"
-            android:textAppearance="?attr/textAppearanceTitleMedium" />
-
-        <TextView
-            android:id="@+id/log"
+            android:id="@+id/resultLine"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:fontFamily="monospace"
+            android:layout_marginTop="12dp"
+            android:textColor="@color/text"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/details"
+            style="@style/Hint"
+            android:layout_marginTop="6dp"
+            android:lineSpacingExtra="2dp"
             android:textIsSelectable="true"
-            android:textSize="12sp" />
+            android:visibility="gone" />
+
+        <TextView
+            style="@style/Hint"
+            android:layout_marginTop="20dp"
+            android:text="Good to know: no app can make a game draw frames faster than the game itself decides to. This app removes every limit Android adds on top. If the in-game counter shows a GPU number, the game is already drawing more frames than your screen can show." />
     </LinearLayout>
 </ScrollView>

@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.os.Build
@@ -21,9 +22,12 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.slider.Slider
 import com.google.android.material.textfield.TextInputEditText
 import rikka.shizuku.Shizuku
+import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
@@ -32,31 +36,41 @@ class MainActivity : AppCompatActivity() {
     private val io = Executors.newSingleThreadExecutor()
     private val ui = Handler(Looper.getMainLooper())
     private lateinit var prefs: SharedPreferences
+    private lateinit var display: Display
 
     private lateinit var shizukuStatus: TextView
     private lateinit var grantButton: Button
-    private lateinit var liveFps: TextView
-    private lateinit var modeInfo: TextView
+    private lateinit var statScreen: TextView
+    private lateinit var statGame: TextView
+    private lateinit var statGameLabel: TextView
+    private lateinit var statRam: TextView
+    private lateinit var autoMode: MaterialSwitch
+    private lateinit var autoStatus: TextView
+    private lateinit var gamesList: TextView
+    private lateinit var chooseGames: Button
     private lateinit var rateChips: ChipGroup
-    private lateinit var customFps: TextInputEditText
-    private lateinit var lockMin: MaterialSwitch
-    private lateinit var forceMode: MaterialSwitch
-    private lateinit var vendorExtras: MaterialSwitch
-    private lateinit var removeGameCap: MaterialSwitch
-    private lateinit var gamePackage: TextInputEditText
-    private lateinit var applyButton: Button
-    private lateinit var resetButton: Button
-    private lateinit var ramInfo: TextView
-    private lateinit var boostStatus: TextView
-    private lateinit var boostInterval: TextInputEditText
-    private lateinit var aggressive: MaterialSwitch
+    private lateinit var lockSwitch: MaterialSwitch
+    private lateinit var uncapSwitch: MaterialSwitch
+    private lateinit var perfSwitch: MaterialSwitch
+    private lateinit var saverSwitch: MaterialSwitch
+    private lateinit var dndSwitch: MaterialSwitch
+    private lateinit var overlaySwitch: MaterialSwitch
+    private lateinit var scaleChips: ChipGroup
+    private lateinit var ramChips: ChipGroup
+    private lateinit var ramHint: TextView
+    private lateinit var ramSliderLabel: TextView
+    private lateinit var ramSlider: Slider
     private lateinit var keepList: TextInputEditText
     private lateinit var boostNowButton: Button
-    private lateinit var autoBoostButton: Button
-    private lateinit var log: TextView
+    private lateinit var applyButton: Button
+    private lateinit var undoButton: Button
+    private lateinit var resultLine: TextView
+    private lateinit var details: TextView
 
-    private lateinit var display: Display
-    private val chipRates = mutableMapOf<Int, Float>()
+    /** True while the code (not the user) is flipping the auto mode switch. */
+    private var settingSwitch = false
+
+    private data class AppEntry(val pkg: String, val label: String, val isGame: Boolean)
 
     // ---- Shizuku listeners -------------------------------------------------
 
@@ -65,7 +79,7 @@ class MainActivity : AppCompatActivity() {
     private val permissionResult =
         Shizuku.OnRequestPermissionResultListener { _, _ -> refreshShizukuState() }
 
-    // ---- Live FPS meter (also refreshes the RAM line once a second) --------
+    // ---- Live numbers (updated once a second) ------------------------------
 
     private var frames = 0
     private var windowStart = 0L
@@ -75,14 +89,10 @@ class MainActivity : AppCompatActivity() {
             frames++
             val elapsed = frameTimeNanos - windowStart
             if (elapsed >= 1_000_000_000L) {
-                val fps = frames * 1_000_000_000.0 / elapsed
-                liveFps.text = fps.roundToInt().toString()
-                val m = display.mode
-                modeInfo.text = "FPS now · mode ${m.physicalWidth}×${m.physicalHeight} @ " +
-                    "${m.refreshRate.roundToInt()} Hz"
+                statScreen.text = (frames * 1_000_000_000.0 / elapsed).roundToInt().toString()
                 frames = 0
                 windowStart = frameTimeNanos
-                refreshBoostState()
+                refreshLive()
             }
             Choreographer.getInstance().postFrameCallback(this)
         }
@@ -93,53 +103,58 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        prefs = getSharedPreferences(BoostService.PREFS, Context.MODE_PRIVATE)
-
-        shizukuStatus = findViewById(R.id.shizukuStatus)
-        grantButton = findViewById(R.id.grantButton)
-        liveFps = findViewById(R.id.liveFps)
-        modeInfo = findViewById(R.id.modeInfo)
-        rateChips = findViewById(R.id.rateChips)
-        customFps = findViewById(R.id.customFps)
-        lockMin = findViewById(R.id.lockMin)
-        forceMode = findViewById(R.id.forceMode)
-        vendorExtras = findViewById(R.id.vendorExtras)
-        removeGameCap = findViewById(R.id.removeGameCap)
-        gamePackage = findViewById(R.id.gamePackage)
-        applyButton = findViewById(R.id.applyButton)
-        resetButton = findViewById(R.id.resetButton)
-        ramInfo = findViewById(R.id.ramInfo)
-        boostStatus = findViewById(R.id.boostStatus)
-        boostInterval = findViewById(R.id.boostInterval)
-        aggressive = findViewById(R.id.aggressive)
-        keepList = findViewById(R.id.keepList)
-        boostNowButton = findViewById(R.id.boostNowButton)
-        autoBoostButton = findViewById(R.id.autoBoostButton)
-        log = findViewById(R.id.log)
-
+        prefs = Cfg.prefs(this)
         val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         display = dm.getDisplay(Display.DEFAULT_DISPLAY)
 
-        buildRateChips()
+        shizukuStatus = findViewById(R.id.shizukuStatus)
+        grantButton = findViewById(R.id.grantButton)
+        statScreen = findViewById(R.id.statScreen)
+        statGame = findViewById(R.id.statGame)
+        statGameLabel = findViewById(R.id.statGameLabel)
+        statRam = findViewById(R.id.statRam)
+        autoMode = findViewById(R.id.autoMode)
+        autoStatus = findViewById(R.id.autoStatus)
+        gamesList = findViewById(R.id.gamesList)
+        chooseGames = findViewById(R.id.chooseGames)
+        rateChips = findViewById(R.id.rateChips)
+        lockSwitch = findViewById(R.id.lockSwitch)
+        uncapSwitch = findViewById(R.id.uncapSwitch)
+        perfSwitch = findViewById(R.id.perfSwitch)
+        saverSwitch = findViewById(R.id.saverSwitch)
+        dndSwitch = findViewById(R.id.dndSwitch)
+        overlaySwitch = findViewById(R.id.overlaySwitch)
+        scaleChips = findViewById(R.id.scaleChips)
+        ramChips = findViewById(R.id.ramChips)
+        ramHint = findViewById(R.id.ramHint)
+        ramSliderLabel = findViewById(R.id.ramSliderLabel)
+        ramSlider = findViewById(R.id.ramSlider)
+        keepList = findViewById(R.id.keepList)
+        boostNowButton = findViewById(R.id.boostNowButton)
+        applyButton = findViewById(R.id.applyButton)
+        undoButton = findViewById(R.id.undoButton)
+        resultLine = findViewById(R.id.resultLine)
+        details = findViewById(R.id.details)
 
-        // Restore saved booster settings
-        gamePackage.setText(prefs.getString(BoostService.KEY_GAME, ""))
-        keepList.setText(prefs.getString(BoostService.KEY_KEEP, ""))
-        aggressive.isChecked = prefs.getBoolean(BoostService.KEY_AGGRESSIVE, false)
-        boostInterval.setText(
-            prefs.getInt(BoostService.KEY_INTERVAL, BoostService.DEFAULT_INTERVAL).toString()
-        )
+        setUpSettings()
 
         grantButton.setOnClickListener { requestShizuku() }
-        applyButton.setOnClickListener { onApply() }
-        resetButton.setOnClickListener { onReset() }
+        chooseGames.setOnClickListener { showGamePicker() }
         boostNowButton.setOnClickListener { onBoostNow() }
-        autoBoostButton.setOnClickListener { onToggleAutoBoost() }
+        applyButton.setOnClickListener { runTweaks(apply = true) }
+        undoButton.setOnClickListener { runTweaks(apply = false) }
+        resultLine.setOnClickListener {
+            details.visibility = if (details.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        autoMode.setOnCheckedChangeListener { _, checked ->
+            if (!settingSwitch) onAutoModeToggled(checked)
+        }
 
         Shizuku.addBinderReceivedListenerSticky(binderReceived)
         Shizuku.addBinderDeadListener(binderDead)
         Shizuku.addRequestPermissionResultListener(permissionResult)
         refreshShizukuState()
+        refreshGamesList()
     }
 
     override fun onResume() {
@@ -148,13 +163,13 @@ class MainActivity : AppCompatActivity() {
         windowStart = 0L
         Choreographer.getInstance().postFrameCallback(frameCallback)
         refreshShizukuState()
-        refreshBoostState()
+        refreshLive()
     }
 
     override fun onPause() {
         super.onPause()
         Choreographer.getInstance().removeFrameCallback(frameCallback)
-        saveBoostSettings()
+        prefs.edit().putString(Cfg.KEEP, keepList.text?.toString().orEmpty()).apply()
     }
 
     override fun onDestroy() {
@@ -165,155 +180,175 @@ class MainActivity : AppCompatActivity() {
         io.shutdown()
     }
 
-    // ---- Refresh rate ------------------------------------------------------
+    // ---- Settings ----------------------------------------------------------
 
-    private fun buildRateChips() {
-        val current = display.mode
-        val rates = display.supportedModes
-            .filter {
-                it.physicalWidth == current.physicalWidth &&
-                    it.physicalHeight == current.physicalHeight
+    /** Fills a chip group with choices and saves the picked value. */
+    private fun fillChips(
+        group: ChipGroup,
+        choices: List<Pair<String, Int>>,
+        selected: Int,
+        onPick: (Int) -> Unit
+    ) {
+        group.removeAllViews()
+        val values = mutableMapOf<Int, Int>()
+        for ((label, value) in choices) {
+            val chip = layoutInflater.inflate(R.layout.chip_choice, group, false) as Chip
+            chip.id = View.generateViewId()
+            chip.text = label
+            values[chip.id] = value
+            group.addView(chip)
+            if (value == selected) group.check(chip.id)
+        }
+        group.setOnCheckedStateChangeListener { _, ids ->
+            ids.firstOrNull()?.let { id -> values[id]?.let(onPick) }
+        }
+    }
+
+    private fun bindSwitch(view: MaterialSwitch, key: String, default: Boolean) {
+        view.isChecked = prefs.getBoolean(key, default)
+        view.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(key, checked).apply()
+        }
+    }
+
+    private fun setUpSettings() {
+        // Refresh rate
+        val rates = Tweaks.rates(display)
+        val savedHz = prefs.getInt(Cfg.HZ, 0)
+        val rateChoices = listOf("Max" to 0) + rates.map { "$it Hz" to it }
+        fillChips(rateChips, rateChoices, if (savedHz in rates) savedHz else 0) {
+            prefs.edit().putInt(Cfg.HZ, it).apply()
+        }
+
+        bindSwitch(lockSwitch, Cfg.LOCK, true)
+        bindSwitch(uncapSwitch, Cfg.UNCAP, true)
+        bindSwitch(perfSwitch, Cfg.PERF, true)
+        bindSwitch(saverSwitch, Cfg.SAVER_OFF, true)
+        bindSwitch(dndSwitch, Cfg.DND, false)
+        bindSwitch(overlaySwitch, Cfg.OVERLAY, true)
+
+        // Render resolution
+        fillChips(
+            scaleChips,
+            listOf("Full" to 100, "85%" to 85, "70%" to 70, "50%" to 50),
+            prefs.getInt(Cfg.SCALE, 100)
+        ) { prefs.edit().putInt(Cfg.SCALE, it).apply() }
+
+        // RAM cleaner
+        fillChips(
+            ramChips,
+            listOf("Off" to Cfg.RAM_OFF, "Normal" to Cfg.RAM_NORMAL, "Aggressive" to Cfg.RAM_AGGRESSIVE),
+            prefs.getInt(Cfg.RAM_MODE, Cfg.RAM_NORMAL)
+        ) {
+            prefs.edit().putInt(Cfg.RAM_MODE, it).apply()
+            showRamHint(it)
+        }
+        showRamHint(prefs.getInt(Cfg.RAM_MODE, Cfg.RAM_NORMAL))
+
+        val seconds = (prefs.getInt(Cfg.RAM_INTERVAL, 30).coerceIn(10, 120) / 5) * 5
+        ramSlider.value = seconds.toFloat()
+        ramSliderLabel.text = "Clear every $seconds seconds"
+        ramSlider.addOnChangeListener { _, value, _ ->
+            val s = value.roundToInt()
+            ramSliderLabel.text = "Clear every $s seconds"
+            prefs.edit().putInt(Cfg.RAM_INTERVAL, s).apply()
+        }
+
+        keepList.setText(prefs.getString(Cfg.KEEP, ""))
+    }
+
+    private fun showRamHint(mode: Int) {
+        ramHint.text = when (mode) {
+            Cfg.RAM_OFF -> "The cleaner won't run."
+            Cfg.RAM_NORMAL -> "Closes apps that are only parked in the background. Safe."
+            else -> "Also force-closes running apps you installed. System apps, your " +
+                "keyboard, launcher, phone and SMS apps and anything playing audio are " +
+                "never closed. Closed apps go quiet until you open them again."
+        }
+    }
+
+    // ---- Games -------------------------------------------------------------
+
+    private fun installedApps(): List<AppEntry> {
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        return packageManager.queryIntentActivities(launcher, 0)
+            .mapNotNull { it.activityInfo?.applicationInfo }
+            .distinctBy { it.packageName }
+            .filter { it.packageName != packageName }
+            .filter { (it.flags and ApplicationInfo.FLAG_SYSTEM) == 0 }
+            .map { info ->
+                @Suppress("DEPRECATION")
+                val isGame = info.category == ApplicationInfo.CATEGORY_GAME ||
+                    (info.flags and ApplicationInfo.FLAG_IS_GAME) != 0
+                AppEntry(info.packageName, packageManager.getApplicationLabel(info).toString(), isGame)
             }
-            .map { it.refreshRate }
-            .distinctBy { it.roundToInt() }
-            .sorted()
+            .sortedWith(compareByDescending<AppEntry> { it.isGame }.thenBy { it.label.lowercase(Locale.ROOT) })
+    }
 
-        rateChips.removeAllViews()
-        chipRates.clear()
-        for (rate in rates) {
-            val chip = Chip(this).apply {
-                id = View.generateViewId()
-                text = "${rate.roundToInt()}"
-                isCheckable = true
+    private fun showGamePicker() {
+        val apps = installedApps()
+        if (apps.isEmpty()) {
+            toast("No apps found")
+            return
+        }
+        val saved = Cfg.games(prefs)
+        // First time: tick the apps Android already knows are games
+        val picked = (if (saved.isEmpty()) apps.filter { it.isGame }.map { it.pkg } else saved)
+            .toMutableSet()
+        val labels = apps.map { if (it.isGame) "${it.label}  ·  game" else it.label }.toTypedArray()
+        val checked = apps.map { it.pkg in picked }.toBooleanArray()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Choose your games")
+            .setMultiChoiceItems(labels, checked) { _, index, isChecked ->
+                if (isChecked) picked += apps[index].pkg else picked -= apps[index].pkg
             }
-            chipRates[chip.id] = rate
-            rateChips.addView(chip)
-        }
-        rateChips.setOnCheckedStateChangeListener { _, checkedIds ->
-            if (checkedIds.isNotEmpty()) customFps.setText("")
-        }
-    }
-
-    /** Custom field wins if filled in, otherwise the selected chip. */
-    private fun chosenFps(): Float? {
-        val typed = customFps.text?.toString()?.trim().orEmpty()
-        if (typed.isNotEmpty()) return typed.toFloatOrNull()?.takeIf { it in 1f..1000f }
-        return chipRates[rateChips.checkedChipId]
-    }
-
-    private fun onApply() {
-        val fps = chosenFps()
-        if (fps == null) {
-            toast("Pick a rate or type one first")
-            return
-        }
-        if (!ShizukuShell.ready()) {
-            toast("Shizuku isn't ready yet")
-            return
-        }
-        val supported = chipRates.values.any { it.roundToInt() == fps.roundToInt() }
-        if (!supported) {
-            appendLog("Note: ${fps.roundToInt()} isn't a rate this screen reports. " +
-                "The system will use the nearest one it has.")
-        }
-        val pkg = gamePackage.text?.toString()?.trim().orEmpty()
-        if (pkg.isNotEmpty() && RefreshRateController.cleanPackage(pkg) == null) {
-            toast("That game package name doesn't look right")
-            return
-        }
-        val opt = RefreshRateController.Options(
-            lockMin = lockMin.isChecked,
-            forceMode = forceMode.isChecked,
-            vendorExtras = vendorExtras.isChecked,
-            removeGameCap = removeGameCap.isChecked,
-            gamePackage = pkg
-        )
-        saveBoostSettings()
-        runAll(RefreshRateController.applyCommands(display, fps, opt))
-    }
-
-    private fun onReset() {
-        if (!ShizukuShell.ready()) {
-            toast("Shizuku isn't ready yet")
-            return
-        }
-        rateChips.clearCheck()
-        customFps.setText("")
-        runAll(RefreshRateController.resetCommands(gamePackage.text?.toString().orEmpty()))
-    }
-
-    private fun runAll(commands: List<String>) {
-        applyButton.isEnabled = false
-        resetButton.isEnabled = false
-        io.execute {
-            val sb = StringBuilder()
-            for (cmd in commands) {
-                val r = ShizukuShell.exec(cmd)
-                sb.append(if (r.ok) "✓ " else "✗ ").append(cmd).append('\n')
-                val detail = listOf(r.stdout, r.stderr).filter { it.isNotEmpty() }
-                    .joinToString(" | ")
-                if (detail.isNotEmpty()) sb.append("   ").append(detail).append('\n')
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Done") { _, _ ->
+                // Drop apps that were uninstalled since last time
+                val valid = picked.filter { p -> apps.any { it.pkg == p } }.toSet()
+                prefs.edit().putStringSet(Cfg.GAMES, valid).apply()
+                refreshGamesList()
             }
-            ui.post {
-                appendLog(sb.toString().trimEnd())
-                applyButton.isEnabled = true
-                resetButton.isEnabled = true
+            .show()
+    }
+
+    private fun refreshGamesList() {
+        val games = Cfg.games(prefs)
+        if (games.isEmpty()) {
+            gamesList.text = "None chosen yet. Detected games are ticked for you when you open the list."
+            return
+        }
+        val names = games.map { pkg ->
+            try {
+                packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+            } catch (t: Throwable) {
+                pkg
             }
-        }
+        }.sorted()
+        gamesList.text = names.joinToString("\n") { "•  $it" }
     }
 
-    // ---- RAM booster -------------------------------------------------------
+    // ---- Auto game mode ----------------------------------------------------
 
-    private fun saveBoostSettings() {
-        val seconds = (boostInterval.text?.toString()?.trim()?.toIntOrNull()
-            ?: BoostService.DEFAULT_INTERVAL)
-            .coerceIn(BoostService.MIN_INTERVAL, BoostService.MAX_INTERVAL)
-        prefs.edit()
-            .putInt(BoostService.KEY_INTERVAL, seconds)
-            .putBoolean(BoostService.KEY_AGGRESSIVE, aggressive.isChecked)
-            .putString(BoostService.KEY_KEEP, keepList.text?.toString().orEmpty())
-            .putString(BoostService.KEY_GAME, gamePackage.text?.toString()?.trim().orEmpty())
-            .apply()
-    }
-
-    private fun onBoostNow() {
-        if (!ShizukuShell.ready()) {
-            toast("Shizuku isn't ready yet")
+    private fun onAutoModeToggled(on: Boolean) {
+        if (!on) {
+            stopService(Intent(this, GameService::class.java))
+            GameService.running = false
+            refreshLive()
             return
         }
-        saveBoostSettings()
-        val keep = RamBooster.parseKeep(
-            keepList.text?.toString().orEmpty() + "," + gamePackage.text?.toString().orEmpty()
-        )
-        val cfg = RamBooster.Config(aggressive.isChecked, keep)
-        boostNowButton.isEnabled = false
-        io.execute {
-            val outcome = RamBooster.boost(applicationContext, cfg)
-            ui.post {
-                boostNowButton.isEnabled = true
-                val line = if (outcome.ok) "✓ Boost: ${outcome.message}" else "✗ Boost: ${outcome.message}"
-                appendLog(
-                    if (outcome.stopped.isEmpty()) line
-                    else line + "\n   closed: " + outcome.stopped.joinToString(", ")
-                )
-                refreshBoostState()
-            }
+        val problem = when {
+            !ShizukuShell.ready() -> "Shizuku isn't ready yet"
+            Cfg.games(prefs).isEmpty() -> "Choose at least one game first"
+            else -> null
         }
-    }
-
-    private fun onToggleAutoBoost() {
-        if (BoostService.running) {
-            stopService(Intent(this, BoostService::class.java))
-            BoostService.running = false
-            refreshBoostState()
+        if (problem != null) {
+            toast(problem)
+            setAutoSwitch(false)
             return
         }
-        if (!ShizukuShell.ready()) {
-            toast("Shizuku isn't ready yet")
-            return
-        }
-        saveBoostSettings()
-        // Android 13+ needs permission to show the "booster is on" notification
+        // Android 13+ needs permission to show the "auto game mode is on" notification
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
@@ -322,28 +357,112 @@ class MainActivity : AppCompatActivity() {
                 this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2001
             )
         }
-        ContextCompat.startForegroundService(this, Intent(this, BoostService::class.java))
-        BoostService.running = true
-        refreshBoostState()
+        ContextCompat.startForegroundService(this, Intent(this, GameService::class.java))
+        GameService.running = true
+        refreshLive()
     }
 
-    private fun refreshBoostState() {
-        val (free, total) = RamBooster.memory(this)
-        ramInfo.text = "RAM free: $free MB of $total MB"
-        if (BoostService.running) {
-            autoBoostButton.text = "Stop auto boost"
-            boostStatus.text = "Auto boost is ON · ${BoostService.passes} passes · " +
-                "${BoostService.totalFreedMb} MB freed in total\n${BoostService.lastStatus}"
+    private fun setAutoSwitch(on: Boolean) {
+        if (autoMode.isChecked == on) return
+        settingSwitch = true
+        autoMode.isChecked = on
+        settingSwitch = false
+    }
+
+    private fun refreshLive() {
+        val (free, _) = RamBooster.memory(this)
+        statRam.text = String.format(Locale.US, "%.1f", free / 1024.0)
+
+        val on = GameService.running
+        setAutoSwitch(on)
+
+        val shown = GameService.shownFps
+        val rendered = GameService.renderedFps
+        if (on && shown >= 0) {
+            statGame.text = shown.toString()
+            statGameLabel.text =
+                if (rendered > shown + 2) "GAME FPS · GPU $rendered" else "GAME FPS"
         } else {
-            autoBoostButton.text = "Start auto boost"
-            boostStatus.text = "Auto boost is off"
+            statGame.text = "--"
+            statGameLabel.text = "GAME FPS"
+        }
+
+        autoStatus.text = when {
+            !on -> "Off. Turn it on and the app boosts by itself whenever one of your " +
+                "games opens, then puts everything back when you leave."
+            GameService.status.isEmpty() -> "Starting…"
+            else -> GameService.status +
+                if (GameService.freedMb > 0) "\n${GameService.freedMb} MB of RAM cleared so far" else ""
         }
     }
 
-    // ---- Helpers -----------------------------------------------------------
+    // ---- Manual buttons ----------------------------------------------------
 
-    private fun appendLog(text: String) {
-        log.text = if (log.text.isNullOrEmpty()) text else "${log.text}\n$text"
+    private fun runTweaks(apply: Boolean) {
+        if (!ShizukuShell.ready()) {
+            toast("Shizuku isn't ready yet")
+            return
+        }
+        val games = Cfg.games(prefs)
+        val steps = if (apply) Tweaks.start(display, prefs, games) else Tweaks.stop(prefs, games)
+        applyButton.isEnabled = false
+        undoButton.isEnabled = false
+        io.execute {
+            val done = Tweaks.run(steps)
+            ui.post {
+                applyButton.isEnabled = true
+                undoButton.isEnabled = true
+                val worked = done.count { it.ok }
+                val headline = when {
+                    worked == done.size && apply -> "✓ All ${done.size} tweaks are on"
+                    worked == done.size -> "✓ Everything is back to normal"
+                    else -> "$worked of ${done.size} worked on this phone"
+                }
+                showResult(
+                    headline,
+                    done.joinToString("\n") { d ->
+                        (if (d.ok) "✓ " else "✗ ") + d.step.label +
+                            if (!d.ok && d.detail.isNotEmpty()) "\n     ${d.detail}" else ""
+                    }
+                )
+                if (apply && games.isEmpty()) {
+                    toast("Screen tweaks applied. Choose games to boost them too.")
+                }
+            }
+        }
+    }
+
+    private fun onBoostNow() {
+        if (!ShizukuShell.ready()) {
+            toast("Shizuku isn't ready yet")
+            return
+        }
+        val keepText = keepList.text?.toString().orEmpty()
+        prefs.edit().putString(Cfg.KEEP, keepText).apply()
+        val keep = RamBooster.parseKeep(keepText) + Cfg.games(prefs)
+        val aggressive = prefs.getInt(Cfg.RAM_MODE, Cfg.RAM_NORMAL) == Cfg.RAM_AGGRESSIVE
+        boostNowButton.isEnabled = false
+        io.execute {
+            val outcome = RamBooster.boost(applicationContext, RamBooster.Config(aggressive, keep))
+            ui.post {
+                boostNowButton.isEnabled = true
+                showResult(
+                    if (outcome.ok) "✓ ${outcome.message}" else "Couldn't clear RAM",
+                    if (!outcome.ok) outcome.message
+                    else if (outcome.stopped.isEmpty()) "Cached background apps were cleared."
+                    else "Closed:\n" + outcome.stopped.joinToString("\n") { "•  $it" }
+                )
+                refreshLive()
+            }
+        }
+    }
+
+    /** One friendly line; the full list stays hidden until it is tapped. */
+    private fun showResult(headline: String, more: String) {
+        resultLine.text = "$headline   (tap for details)"
+        resultLine.visibility = View.VISIBLE
+        details.text = more
+        details.visibility = View.GONE
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
@@ -353,31 +472,23 @@ class MainActivity : AppCompatActivity() {
     private fun refreshShizukuState() {
         ui.post {
             val running = try { Shizuku.pingBinder() } catch (t: Throwable) { false }
-            when {
-                !running -> {
-                    shizukuStatus.text = "Shizuku: not running. Open the Shizuku app and start it."
-                    grantButton.isEnabled = false
-                }
-                Shizuku.isPreV11() -> {
-                    shizukuStatus.text = "Shizuku: too old, please update it."
-                    grantButton.isEnabled = false
-                }
-                ShizukuShell.ready() -> {
-                    shizukuStatus.text = "Shizuku: ready ✓"
-                    grantButton.isEnabled = false
-                }
-                else -> {
-                    shizukuStatus.text = "Shizuku: running, permission needed."
-                    grantButton.isEnabled = true
-                }
+            val ready = ShizukuShell.ready()
+            shizukuStatus.text = when {
+                !running -> "Shizuku isn't running. Open the Shizuku app and start it."
+                ready -> "Shizuku connected ✓"
+                else -> "Shizuku is running but hasn't given this app access yet."
             }
+            shizukuStatus.setTextColor(
+                ContextCompat.getColor(this, if (ready) R.color.accent else R.color.warn)
+            )
+            grantButton.visibility = if (running && !ready) View.VISIBLE else View.GONE
         }
     }
 
     private fun requestShizuku() {
         try {
             if (Shizuku.shouldShowRequestPermissionRationale()) {
-                toast("Permission was denied before. Allow FPS Setter inside the Shizuku app.")
+                toast("Access was denied before. Allow FPS Setter inside the Shizuku app.")
             } else {
                 Shizuku.requestPermission(REQUEST_CODE)
             }

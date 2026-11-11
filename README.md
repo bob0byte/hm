@@ -1,42 +1,23 @@
 # FPS Setter
 
-Pick a refresh rate and the app sets your phone's screen to it, and keep RAM
-clear while you play. Uses Shizuku (no root needed).
-
-## Build
-
-1. Open this folder in Android Studio (Koala or newer) and let it sync.
-2. Run it on your phone, or use Build > Build APK(s).
-
-## Use
-
-1. Install Shizuku and start it (wireless debugging or root).
-2. Open FPS Setter and tap **Grant**.
-3. Tap one of the rates your screen supports (or type one) and press **Apply**.
-4. **Reset to default** undoes everything.
+A game booster for Android that works through Shizuku (no root needed).
 
 ## What it does
 
-| Option | Command run through Shizuku |
-| --- | --- |
-| Always | `settings put system peak_refresh_rate <fps>` |
-| Lock it | `settings put system min_refresh_rate <fps>` |
-| Force display mode (Android 13+) | `cmd display set-user-preferred-display-mode <w> <h> <fps>` |
-| Brand keys, Xiaomi/Redmi/POCO | `user_refresh_rate`, `miui_refresh_rate` |
-| Brand keys, Samsung | `refresh_rate_mode` |
-| Remove game FPS cap (Android 15+) | `setprop debug.graphics.game_default_frame_rate.disabled true` |
-| Game package filled in | `cmd game mode performance <pkg>` and `cmd game set --mode performance --fps disable <pkg>` |
+- **Auto game mode:** pick your games once. When one opens, the app applies
+  your tweaks, clears RAM on a timer and shows an FPS counter. When you leave
+  the game it puts everything back.
+- **Real FPS counter:** reads the game's frame count from the system
+  compositor. If the game draws more frames than the screen can show, the
+  counter adds a "GPU" line with the higher number.
+- **Screen:** sets and locks the refresh rate so the system can't drop it.
+- **Speed and input lag:** removes Android's default game FPS cap (15+), puts
+  the game in performance mode, lifts its per-game FPS throttle, turns battery
+  saver off, optional do-not-disturb, optional lower render resolution.
+- **RAM cleaner:** normal mode clears cached background apps; aggressive mode
+  also force-closes running apps you installed.
 
-## RAM booster
-
-- **Boost now** clears memory once. **Start auto boost** keeps doing it on a
-  timer (every 10 to 600 seconds) from a background service with a
-  notification and a Stop button.
-- Normal mode runs `am kill-all`, which closes apps that are only cached in
-  the background.
-- **Aggressive** also runs `am force-stop` on running apps you installed.
-
-### What is never closed
+## What is never closed
 
 - Any system app (only apps you installed yourself can be closed).
 - The app or apps on screen, this app, Shizuku, Google Play services, Play Store.
@@ -44,7 +25,7 @@ clear while you play. Uses Shizuku (no root needed).
 - Apps with accessibility or notification access, your always-on VPN,
   device admin apps, your live wallpaper, and apps with an active media
   session (music, calls).
-- The game package and everything in the "never close" list.
+- Your chosen games and everything in the "never close" list.
 
 ## Get the APK
 
@@ -53,11 +34,10 @@ the latest "Build APK" run and download **FpsSetter-debug-apk**.
 
 ## Limits
 
-- It cannot go above what the screen hardware supports. A 60 Hz panel stays 60.
-- It removes software caps on the screen. A game with its own internal FPS cap
-  keeps that cap.
-- The game FPS cap switch is cleared by a reboot. Press Apply again after restarting.
-- Aggressive boosting stops closed apps from sending notifications until you
-  open them again, and Android may restart some of them by itself.
-- Some brands reset these settings on reboot or when battery saver turns on.
-  Just press Apply again.
+- No outside app can make a game draw frames faster than the game chooses to.
+  This app removes the limits Android adds on top.
+- The screen can't show more frames than its hardware supports.
+- The game FPS cap switch is cleared by a reboot; it is re-applied whenever a
+  game opens.
+- Aggressive RAM cleaning stops closed apps from sending notifications until
+  you open them again.

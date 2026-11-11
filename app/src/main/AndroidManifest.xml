@@ -4,6 +4,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- For the in-game FPS counter -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Lets the game picker list the apps on your home screen -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -21,14 +31,14 @@
             </intent-filter>
         </activity>
 
-        <!-- Keeps clearing RAM in the background while you play -->
+        <!-- Watches for your games and boosts while you play -->
         <service
-            android:name=".BoostService"
+            android:name=".GameService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Frees memory on a timer while the user is gaming" />
+                android:value="Detects the user's chosen games and applies performance settings while they play" />
         </service>
 
         <!-- Required by Shizuku so it can hand its binder to this app -->
