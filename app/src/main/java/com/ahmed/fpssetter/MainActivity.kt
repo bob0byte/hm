@@ -48,9 +48,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var autoStatus: TextView
     private lateinit var gamesList: TextView
     private lateinit var chooseGames: Button
-    private lateinit var rateChips: ChipGroup
-    private lateinit var lockSwitch: MaterialSwitch
-    private lateinit var uncapSwitch: MaterialSwitch
+    private lateinit var inputSwitch: MaterialSwitch
+    private lateinit var netSwitch: MaterialSwitch
     private lateinit var perfSwitch: MaterialSwitch
     private lateinit var saverSwitch: MaterialSwitch
     private lateinit var dndSwitch: MaterialSwitch
@@ -117,9 +116,8 @@ class MainActivity : AppCompatActivity() {
         autoStatus = findViewById(R.id.autoStatus)
         gamesList = findViewById(R.id.gamesList)
         chooseGames = findViewById(R.id.chooseGames)
-        rateChips = findViewById(R.id.rateChips)
-        lockSwitch = findViewById(R.id.lockSwitch)
-        uncapSwitch = findViewById(R.id.uncapSwitch)
+        inputSwitch = findViewById(R.id.inputSwitch)
+        netSwitch = findViewById(R.id.netSwitch)
         perfSwitch = findViewById(R.id.perfSwitch)
         saverSwitch = findViewById(R.id.saverSwitch)
         dndSwitch = findViewById(R.id.dndSwitch)
@@ -212,16 +210,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setUpSettings() {
-        // Refresh rate
-        val rates = Tweaks.rates(display)
-        val savedHz = prefs.getInt(Cfg.HZ, 0)
-        val rateChoices = listOf("Max" to 0) + rates.map { "$it Hz" to it }
-        fillChips(rateChips, rateChoices, if (savedHz in rates) savedHz else 0) {
-            prefs.edit().putInt(Cfg.HZ, it).apply()
-        }
-
-        bindSwitch(lockSwitch, Cfg.LOCK, true)
-        bindSwitch(uncapSwitch, Cfg.UNCAP, true)
+        bindSwitch(inputSwitch, Cfg.INPUT, true)
+        bindSwitch(netSwitch, Cfg.NET_BLOCK, false)
         bindSwitch(perfSwitch, Cfg.PERF, true)
         bindSwitch(saverSwitch, Cfg.SAVER_OFF, true)
         bindSwitch(dndSwitch, Cfg.DND, false)
@@ -404,11 +394,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val games = Cfg.games(prefs)
-        val steps = if (apply) Tweaks.start(display, prefs, games) else Tweaks.stop(prefs, games)
         applyButton.isEnabled = false
         undoButton.isEnabled = false
         io.execute {
+            if (apply) Tweaks.prepare(prefs)
+            val steps =
+                if (apply) Tweaks.start(display, prefs, games) else Tweaks.stop(prefs, games)
             val done = Tweaks.run(steps)
+            // Undo also gives every app its internet back
+            if (!apply && NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
             ui.post {
                 applyButton.isEnabled = true
                 undoButton.isEnabled = true
@@ -426,7 +420,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 )
                 if (apply && games.isEmpty()) {
-                    toast("Screen tweaks applied. Choose games to boost them too.")
+                    toast("Choose games to boost them too.")
                 }
             }
         }

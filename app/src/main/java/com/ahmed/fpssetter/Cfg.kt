@@ -8,9 +8,9 @@ object Cfg {
     private const val PREFS = "cfg"
 
     const val GAMES = "games"            // set of package names
-    const val HZ = "hz"                  // 0 = highest the screen supports
-    const val LOCK = "lock"
-    const val UNCAP = "uncap"
+    const val INPUT = "inputLag"         // input lag reducer
+    const val NET_BLOCK = "netBlock"     // block other apps' internet while playing
+    const val SAMSUNG_MODE = "samsungMode" // the refresh mode to put back afterwards
     const val PERF = "perf"
     const val SAVER_OFF = "saverOff"
     const val DND = "dnd"

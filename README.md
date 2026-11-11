@@ -7,13 +7,13 @@ A game booster for Android that works through Shizuku (no root needed).
 - **Auto game mode:** pick your games once. When one opens, the app applies
   your tweaks, clears RAM on a timer and shows an FPS counter. When you leave
   the game it puts everything back.
-- **Real FPS counter:** reads the game's frame count from the system
-  compositor. If the game draws more frames than the screen can show, the
-  counter adds a "GPU" line with the higher number.
-- **Screen:** sets and locks the refresh rate so the system can't drop it.
-- **Speed and input lag:** removes Android's default game FPS cap (15+), puts
-  the game in performance mode, lifts its per-game FPS throttle, turns battery
-  saver off, optional do-not-disturb, optional lower render resolution.
+- **Input lag reducer:** holds the screen at its fastest refresh rate and
+  stops the system from dropping it, lifts Android's frame limit for games
+  (15+), puts the game in performance mode, turns battery saver off, optional
+  do-not-disturb, optional lower render resolution.
+- **Wi-Fi guard:** takes other installed apps offline while you play, using
+  Android's built-in per-app firewall, and restores them when you leave.
+- **In-game counter:** FPS, ping, free RAM and battery temperature.
 - **RAM cleaner:** normal mode clears cached background apps; aggressive mode
   also force-closes running apps you installed.
 

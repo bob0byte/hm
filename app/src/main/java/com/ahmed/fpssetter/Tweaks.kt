@@ -4,7 +4,6 @@ import android.content.SharedPreferences
 import android.os.Build
 import android.view.Display
 import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -39,40 +38,35 @@ object Tweaks {
         }
     }
 
-    /** Refresh rates the screen supports at the current resolution. */
-    fun rates(display: Display): List<Int> =
-        sameResolutionModes(display).map { it.refreshRate.roundToInt() }.distinct().sorted()
+    /** The fastest refresh rate the screen supports at the current resolution. */
+    fun maxHz(display: Display): Int =
+        sameResolutionModes(display).maxOfOrNull { it.refreshRate.roundToInt() } ?: 60
 
-    /** The rate to use: the saved choice, or the highest one. */
-    fun targetHz(display: Display, p: SharedPreferences): Int {
-        val all = rates(display)
-        if (all.isEmpty()) return 60
-        val want = p.getInt(Cfg.HZ, 0)
-        return if (want == 0) all.last() else all.minByOrNull { abs(it - want) } ?: all.last()
-    }
+    private fun isSamsung() =
+        (Build.MANUFACTURER + " " + Build.BRAND).lowercase(Locale.US).contains("samsung")
 
+    /**
+     * Input lag reducer, screen part: hold the screen at its fastest rate so
+     * every tap shows up on the very next frame instead of waiting for a slow one.
+     */
     private fun screenOn(display: Display, p: SharedPreferences): List<Step> {
+        if (!p.getBoolean(Cfg.INPUT, true)) return emptyList()
         val steps = mutableListOf<Step>()
-        val hz = targetHz(display, p)
+        val hz = maxHz(display)
         val value = String.format(Locale.US, "%.1f", hz.toFloat())
-        steps += Step("Screen set to $hz Hz", "settings put system peak_refresh_rate $value")
-
-        if (p.getBoolean(Cfg.LOCK, true)) {
-            steps += Step(
-                "Refresh rate locked so it can't drop",
-                "settings put system min_refresh_rate $value"
-            )
-            if (Build.VERSION.SDK_INT >= 33) {
-                sameResolutionModes(display).minByOrNull { abs(it.refreshRate - hz) }?.let { m ->
-                    steps += Step(
-                        "Display mode forced",
-                        "cmd display set-user-preferred-display-mode " +
-                            "${m.physicalWidth} ${m.physicalHeight} ${m.refreshRate}"
-                    )
-                }
+        steps += Step("Screen held at $hz Hz", "settings put system peak_refresh_rate $value")
+        steps += Step(
+            "Screen stopped from dropping to a slower rate",
+            "settings put system min_refresh_rate $value"
+        )
+        if (Build.VERSION.SDK_INT >= 33) {
+            sameResolutionModes(display).maxByOrNull { it.refreshRate }?.let { m ->
+                steps += Step(
+                    "Fastest display mode forced",
+                    "cmd display set-user-preferred-display-mode " +
+                        "${m.physicalWidth} ${m.physicalHeight} ${m.refreshRate}"
+                )
             }
-        } else {
-            steps += Step("Refresh rate left adaptive", "settings delete system min_refresh_rate")
         }
 
         val brand = (Build.MANUFACTURER + " " + Build.BRAND).lowercase(Locale.US)
@@ -81,23 +75,30 @@ object Tweaks {
                 steps += Step("Xiaomi refresh setting", "settings put system user_refresh_rate $hz")
                 steps += Step("MIUI refresh setting", "settings put secure miui_refresh_rate $hz")
             }
-            brand.contains("samsung") ->
-                // 0 = standard (60), 2 = high (fixed at the panel's max)
+            isSamsung() && hz > 60 ->
+                // Samsung: 0 = standard (60), 1 = adaptive, 2 = always at the panel's max
                 steps += Step(
-                    "Samsung motion smoothness",
-                    "settings put secure refresh_rate_mode ${if (hz > 60) 2 else 0}"
+                    "Samsung motion smoothness fixed at $hz Hz",
+                    "settings put secure refresh_rate_mode 2"
                 )
         }
         return steps
     }
 
-    private fun screenOff(): List<Step> {
+    private fun screenOff(p: SharedPreferences): List<Step> {
         val steps = mutableListOf(
             Step("Screen refresh back to default", "settings delete system peak_refresh_rate"),
             Step("Refresh lock removed", "settings delete system min_refresh_rate")
         )
         if (Build.VERSION.SDK_INT >= 33) {
             steps += Step("Display mode released", "cmd display clear-user-preferred-display-mode")
+        }
+        val samsungMode = p.getString(Cfg.SAMSUNG_MODE, null)
+        if (isSamsung() && samsungMode != null && samsungMode.toIntOrNull() != null) {
+            steps += Step(
+                "Samsung motion smoothness put back",
+                "settings put secure refresh_rate_mode $samsungMode"
+            )
         }
         return steps
     }
@@ -106,9 +107,9 @@ object Tweaks {
 
     private fun globalOn(p: SharedPreferences): List<Step> {
         val steps = mutableListOf<Step>()
-        if (p.getBoolean(Cfg.UNCAP, true) && Build.VERSION.SDK_INT >= 35) {
+        if (p.getBoolean(Cfg.INPUT, true) && Build.VERSION.SDK_INT >= 35) {
             steps += Step(
-                "Android's game FPS cap removed",
+                "Android's frame limit for games lifted",
                 "setprop $GAME_CAP_PROP true; $POKE_GAME_SERVICE"
             )
         }
@@ -125,7 +126,7 @@ object Tweaks {
         val steps = mutableListOf<Step>()
         if (Build.VERSION.SDK_INT >= 35) {
             steps += Step(
-                "Android's game FPS cap restored",
+                "Android's frame limit for games restored",
                 "setprop $GAME_CAP_PROP false; $POKE_GAME_SERVICE"
             )
         }
@@ -168,7 +169,20 @@ object Tweaks {
         screenOn(display, p) + globalOn(p) + games.flatMap { gameOn(p, it) }
 
     fun stop(p: SharedPreferences, games: Collection<String>): List<Step> =
-        screenOff() + globalOff(p) + games.flatMap { gameOff(it) }
+        screenOff(p) + globalOff(p) + games.flatMap { gameOff(it) }
+
+    /**
+     * Blocking. Call before [start]. On Samsung, remembers the current motion
+     * smoothness setting so [stop] can put it back.
+     */
+    fun prepare(p: SharedPreferences) {
+        if (!isSamsung() || !p.getBoolean(Cfg.INPUT, true)) return
+        val now = ShizukuShell.exec("settings get secure refresh_rate_mode").stdout.trim()
+        // "2" is what this app sets, so only remember a value that isn't ours
+        if (now.toIntOrNull() != null && (now != "2" || p.getString(Cfg.SAMSUNG_MODE, null) == null)) {
+            p.edit().putString(Cfg.SAMSUNG_MODE, now).apply()
+        }
+    }
 
     /** Blocking. Call from a background thread. */
     fun run(steps: List<Step>): List<Done> = steps.map { step ->

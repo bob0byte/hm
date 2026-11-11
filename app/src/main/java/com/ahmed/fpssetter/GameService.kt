@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.graphics.Color
@@ -14,6 +15,7 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -53,6 +55,9 @@ class GameService : Service() {
     private var overlay: TextView? = null
 
     private val foreground = Regex("u\\d+ ([A-Za-z0-9_.]+)/")
+    private val pingTime = Regex("time=([0-9.]+)")
+    private var ticks = 0
+    private var pingMs = -1
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -90,6 +95,15 @@ class GameService : Service() {
                     // Never let one bad pass stop the watcher
                 }
             }, 0, TICK_SECONDS, TimeUnit.SECONDS)
+            // If a past session ended badly, give apps their internet back
+            executor.execute {
+                try {
+                    if (ShizukuShell.ready() && NetBlocker.hasLeftovers(prefs)) {
+                        NetBlocker.unblock(prefs)
+                    }
+                } catch (t: Throwable) {
+                }
+            }
             worker = executor
         }
         return START_STICKY
@@ -164,9 +178,19 @@ class GameService : Service() {
         renderedFps = -1
         gameLabel = labelOf(pkg)
 
+        Tweaks.prepare(prefs)
         val done = Tweaks.run(Tweaks.start(display, prefs, listOf(pkg)))
         val worked = done.count { it.ok }
         lastSession = "${worked} of ${done.size} tweaks applied"
+
+        if (prefs.getBoolean(Cfg.NET_BLOCK, false)) {
+            val keep = RamBooster.parseKeep(prefs.getString(Cfg.KEEP, "").orEmpty()) +
+                Cfg.games(prefs)
+            val net = NetBlocker.block(this, prefs, keep)
+            if (net.ok && net.count > 0) lastSession += " · ${net.count} apps offline"
+        }
+        ticks = 0
+        pingMs = -1
 
         if (prefs.getBoolean(Cfg.OVERLAY, true)) {
             meter.start()
@@ -199,6 +223,9 @@ class GameService : Service() {
                 shownFps = it.shown
                 renderedFps = it.rendered
             }
+            // Ping every few checks; it doesn't need to be as fresh as FPS
+            if (ticks % 3 == 0) pingMs = measurePing()
+            ticks++
             updateOverlay()
         } else if (overlay != null) {
             hideOverlay()
@@ -211,6 +238,7 @@ class GameService : Service() {
         game = null
         misses = 0
         Tweaks.run(Tweaks.stop(prefs, listOf(pkg)))
+        if (NetBlocker.hasLeftovers(prefs)) NetBlocker.unblock(prefs)
         meter.stop()
         hideOverlay()
         shownFps = -1
@@ -279,9 +307,25 @@ class GameService : Service() {
             append(if (shown >= 0) "$shown FPS" else "… FPS")
             // Only mention the GPU when it is clearly drawing more than the screen shows
             if (rendered > shown + 2) append("\nGPU $rendered")
+            if (pingMs >= 0) append("\n$pingMs ms")
             append(String.format(Locale.US, "\nRAM %.1fG", free / 1024.0))
+            val temp = batteryTemp()
+            if (temp > 0) append("\n$temp°C")
         }
         main.post { overlay?.text = text }
+    }
+
+    /** Round trip to a nearby internet server in ms, or -1 if it couldn't be measured. */
+    private fun measurePing(): Int {
+        val r = ShizukuShell.exec("ping -c 1 -W 1 1.1.1.1")
+        val ms = pingTime.find(r.stdout)?.groupValues?.get(1)?.toFloatOrNull() ?: return -1
+        return ms.toInt()
+    }
+
+    private fun batteryTemp(): Int {
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val tenths = battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
+        return tenths / 10
     }
 
     private fun hideOverlay() {
